@@ -9,6 +9,8 @@ from transformations import CropTransform
 from timing import FadeInOut
 from text_operation import DrawText
 
+## run from project root!
+
 def test_blur_filter():
     print("\nTesting BlurFilter...")
     timeline = QTimeLine()

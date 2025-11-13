@@ -1,10 +1,9 @@
 import subprocess
 import json
 from timing.timing_interface import Timing
-from base import BaseProcessor
 from PySide6.QtCore import QTimeLine
 
-class FadeInOut(Timing, BaseProcessor):
+class FadeInOut(Timing):
     def __init__(self, duration: int = 1, type: str = "both"):
         self.duration = max(0, int(duration))
         self.type = type.lower()
