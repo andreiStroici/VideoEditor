@@ -40,9 +40,21 @@ class VideoEditorUI(QWidget):
         main.setColumnStretch(0, 1)
         main.setColumnStretch(1, 2)
 
+        #conections
+        #toolbar to media tab for open files/folder
+        toolbar.files_selected.connect(media_tabs.add_files)
+        toolbar.folder_selected.connect(media_tabs.add_folder)
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     editor = VideoEditorUI()
     editor.show()
     sys.exit(app.exec())
+
+
+#source envPIU/bin/activate
+#python VideoEditorUI.py
+#ps aux | grep python.
+#kill -9 24847 
