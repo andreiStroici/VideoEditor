@@ -3,7 +3,7 @@ from text_operation.text_operation_interface import TextOperation
 from base import BaseProcessor
 from PySide6.QtCore import QTimeLine
 
-class DrawText(TextOperation, BaseProcessor):
+class DrawText(TextOperation):
     def __init__(self, text: str = "", position: Tuple[int, int] = (10, 10),
                  font: str = "Arial", size: int = 24, color: str = "white", opacity: float = 1.0):
         self.text = text.replace("'", "\\'").replace(":", "\\:")
