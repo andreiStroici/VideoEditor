@@ -1,4 +1,8 @@
 import sys
+import os
+
+
+
 from PySide6.QtWidgets import QGridLayout,QWidget,QApplication
 from PySide6.QtCore import Qt,QSize
 from Toolbar import Toolbar
@@ -21,29 +25,29 @@ class VideoEditorUI(QWidget):
         main.setContentsMargins(SPACING, SPACING, SPACING, SPACING)
 
        
-        toolbar=Toolbar(SPACING)
-        media_tabs=MediaTabs(SPACING)
-        video_preview=VideoPreview(SPACING)
-        enchancements_tabs=EnchancementsTabs(SPACING)
-        timeline_container=TimelineAndTracks(SPACING)
+        self.toolbar = Toolbar(SPACING)
+        self.media_tabs = MediaTabs(SPACING)
+        self.video_preview = VideoPreview(SPACING) 
+        self.enchancements_tabs = EnchancementsTabs(SPACING)
+        self.timeline_container = TimelineAndTracks(SPACING)
 
-        main.addWidget(toolbar, 0, 0, 1, 2)     
-        main.addWidget(media_tabs, 1, 0)
-        main.addWidget(video_preview,1,1)
-        main.addWidget(enchancements_tabs, 2, 0)
-        main.addWidget(timeline_container, 2, 1)
+        main.addWidget(self.toolbar, 0, 0, 1, 2)
+        main.addWidget(self.media_tabs, 1, 0)
+        main.addWidget(self.video_preview, 1, 1)
+        main.addWidget(self.enchancements_tabs, 2, 0)
+        main.addWidget(self.timeline_container, 2, 1)
         
         # Stretching / proportions
-        main.setRowStretch(1, 3)
-        main.setRowStretch(2, 2)
+        main.setRowStretch(1, 2)
+        main.setRowStretch(2, 1)
 
-        main.setColumnStretch(0, 1)
-        main.setColumnStretch(1, 2)
+        main.setColumnStretch(0, 2)
+        main.setColumnStretch(1, 5)
 
-        #conections
-        #toolbar to media tab for open files/folder
-        toolbar.files_selected.connect(media_tabs.add_files)
-        toolbar.folder_selected.connect(media_tabs.add_folder)
+        self.toolbar.files_selected.connect(self.media_tabs.add_files)
+        self.toolbar.folder_selected.connect(self.media_tabs.add_folder)
+
+        self.media_tabs.file_double_clicked.connect(self.video_preview.add_media_tab)
 
 
 

@@ -1,161 +1,81 @@
 import sys
+import os
+import hashlib
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout,
-    QPushButton, QLabel, QVBoxLayout
-    
+    QWidget, QVBoxLayout, QLabel, QTabWidget, QTabBar, QSizePolicy
 )
-from PySide6.QtCore import Qt,QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QUrl, QSize
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
+
+
+from VideoPreviewButtons import VideoPreviewButtons
+
+from VideoTabContent import VideoTabContent
 
 
 class VideoPreview(QWidget):
-    def __init__(self,SPACING,parent=None):
+    def __init__(self, SPACING, parent=None):
         super().__init__(parent)
        
         layout = QVBoxLayout(self)
         layout.setSpacing(SPACING)
         layout.setContentsMargins(SPACING, SPACING, SPACING, SPACING)
 
-        self.video_preview = QLabel("Video Preview (16:9)")
-        self.video_preview.setAlignment(Qt.AlignCenter)
-        self.video_preview.setStyleSheet("background:#333; color:white; border:1px solid #555;")
+        self.buttons = VideoPreviewButtons(SPACING)
+        self.preview_tabs = QTabWidget()
+        self.preview_tabs.setTabsClosable(True)
+        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        timeline_image_path = os.path.join(base_dir, "icons", "black.jpg")
+        
+        self.main_timeline_tab = VideoTabContent(timeline_image_path)
+        
+        self.preview_tabs.addTab(self.main_timeline_tab, "Timeline")
+        self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
 
-        self.video_controls = QHBoxLayout()
-        self.video_controls.setSpacing(SPACING)
+        layout.addWidget(self.preview_tabs)
+        layout.addWidget(self.buttons)
 
-        # Video COntrol buttons
-        self.export_project_button=QPushButton()
-        export_project_icon=QIcon("icons/export_project.png")
-        self.export_project_button.setIcon(export_project_icon)
-        self.export_project_button.setIconSize(QSize(32,32))
-        self.export_project_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
+        self.preview_tabs.tabCloseRequested.connect(self._close_tab)
+        self.preview_tabs.currentChanged.connect(self._on_tab_changed)
+        self.buttons.play_pause_button.clicked.connect(self._toggle_play_active_tab)
 
-        # To Start Button
-        self.to_start_button=QPushButton()
-        to_start_button_icon=QIcon("icons/toStart.png")
-        self.to_start_button.setIcon(to_start_button_icon)
-        self.to_start_button.setIconSize(QSize(32,32))
-        self.to_start_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # PlayBack Button
-        self.playback_button=QPushButton()
-        playback_button_icon=QIcon("icons/playback.png")
-        self.playback_button.setIcon(playback_button_icon)
-        self.playback_button.setIconSize(QSize(32,32))
-        self.playback_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # Preview Frame Button
-        self.prev_frame_button=QPushButton()
-        prev_frame_button_icon=QIcon("icons/prevFrame.png")
-        self.prev_frame_button.setIcon(prev_frame_button_icon)
-        self.prev_frame_button.setIconSize(QSize(32,32))
-        self.prev_frame_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # PLay/Pause Button
-        self.play_pause_button=QPushButton()
-        play_pause_button_icon=QIcon("icons/play-button.png")
-        self.play_pause_button.setIcon(play_pause_button_icon)
-        self.play_pause_button.setIconSize(QSize(32,32))
-        self.play_pause_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # NextFrame Button
-        self.next_frame_button=QPushButton()
-        next_frame_button_icon=QIcon("icons/nextFrame.png")
-        self.next_frame_button.setIcon(next_frame_button_icon)
-        self.next_frame_button.setIconSize(QSize(32,32))
-        self.next_frame_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # Faster Button
-        self.faster_button=QPushButton()
-        faster_button_icon=QIcon("icons/speedUp.png")
-        self.faster_button.setIcon(faster_button_icon)
-        self.faster_button.setIconSize(QSize(32,32))
-        self.faster_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
-        # ToEnd Button
-        self.to_end_button=QPushButton()
-        to_end_button_icon=QIcon("icons/toEnd.png")
-        self.to_end_button.setIcon(to_end_button_icon)
-        self.to_end_button.setIconSize(QSize(32,32))
-        self.to_end_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
+        self._on_tab_changed(0)
 
+    def add_media_tab(self, file_path):
+        new_tab_content = VideoTabContent(file_path)
+        tab_name = os.path.basename(file_path)
+        new_index = self.preview_tabs.addTab(new_tab_content, tab_name)
+        self.preview_tabs.setCurrentIndex(new_index)
 
-        self.video_controls.addStretch()
-        self.video_controls.addSpacing(SPACING * 3)
-        self.video_controls.addWidget(self.to_start_button)
-        self.video_controls.addWidget(self.playback_button)
-        self.video_controls.addWidget(self.prev_frame_button)
-        self.video_controls.addWidget(self.play_pause_button)
-        self.video_controls.addWidget(self.next_frame_button)
-        self.video_controls.addWidget(self.faster_button)
-        self.video_controls.addWidget(self.to_end_button)
+    def _on_tab_changed(self, index):
+        current_widget = self.preview_tabs.widget(index)
+        controls_enabled = False
+        
+        if isinstance(current_widget, VideoTabContent):
+            if current_widget.player is not None:
+                controls_enabled = True
+        
+        self.buttons.setEnabled(controls_enabled)
+        opacity = 1.0 if controls_enabled else 0.3
+        self.buttons.setWindowOpacity(opacity) 
 
-        self.video_controls.addStretch()
-        layout.addWidget(self.video_preview, stretch=5)
-        layout.addLayout(self.video_controls, stretch=1)
+    def _toggle_play_active_tab(self):
+        current_widget = self.preview_tabs.currentWidget()
+        if isinstance(current_widget, VideoTabContent) and current_widget.player:
+            state = current_widget.player.playbackState()
+            if state == QMediaPlayer.PlayingState:
+                current_widget.player.pause()
+            else:
+                current_widget.player.play()
+
+    def _close_tab(self, index):
+        if index == 0: return
+
+        widget = self.preview_tabs.widget(index)
+        if isinstance(widget, VideoTabContent) and widget.player:
+            widget.player.stop()
+        
+        self.preview_tabs.removeTab(index)

@@ -1,17 +1,17 @@
 import os
 from PySide6.QtWidgets import QWidget, QTabWidget, QListWidget, QVBoxLayout, QListWidgetItem, QSizePolicy
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QPixmap
 
 
 class MediaTabs(QWidget):
+    file_double_clicked = Signal(str)
     SUPPORTED_IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
     SUPPORTED_VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv'}
     SUPPORTED_AUDIO_EXT = {'.mp3', '.wav', '.flac'}
 
     def __init__(self, SPACING, parent=None):
         super().__init__(parent)
-
         # initial setup
         base_dir = os.path.dirname(__file__)
         self.thumb_dir = os.path.join(base_dir, "video_thumbnails_cache")
@@ -42,6 +42,15 @@ class MediaTabs(QWidget):
         self.media_tabs.addTab(self.audio_list, "Audio")
 
         layout.addWidget(self.media_tabs)
+
+        self.show_all_tab_list.itemDoubleClicked.connect(self._handle_double_click)
+        self.video_list.itemDoubleClicked.connect(self._handle_double_click)
+        self.audio_list.itemDoubleClicked.connect(self._handle_double_click)
+
+    def _handle_double_click(self, item):
+        path = item.data(Qt.UserRole)
+        if path:
+            self.file_double_clicked.emit(path)
 
     def _setup_media_grid(self, file_list, SPACING):
         file_list.setViewMode(QListWidget.IconMode)  # grid mode
