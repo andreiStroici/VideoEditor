@@ -1,8 +1,6 @@
 import sys
 import os
 
-
-
 from PySide6.QtWidgets import QGridLayout,QWidget,QApplication
 from PySide6.QtCore import Qt,QSize
 from Toolbar import Toolbar

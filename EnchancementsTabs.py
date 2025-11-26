@@ -20,4 +20,4 @@ class EnchancementsTabs(QWidget):
         self.enhanced_tab.addTab(QListWidget(), "Transitions")
         self.enhanced_tab.addTab(QListWidget(), "Effects")
 
-        layout.addWidget(self.enhanced_tab)
+        layout.addWidget(self.enhanced_tab) 

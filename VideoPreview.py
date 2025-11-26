@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QUrl, QSize
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent, QIcon
 
 
 from VideoPreviewButtons import VideoPreviewButtons
@@ -26,6 +26,8 @@ class VideoPreview(QWidget):
         self.buttons = VideoPreviewButtons(SPACING)
         self.preview_tabs = QTabWidget()
         self.preview_tabs.setTabsClosable(True)
+
+        self._current_connected_tab = None
         
         base_dir = os.path.dirname(os.path.abspath(__file__))
         timeline_image_path = os.path.join(base_dir, "icons", "black.jpg")
@@ -51,16 +53,38 @@ class VideoPreview(QWidget):
         self.preview_tabs.setCurrentIndex(new_index)
 
     def _on_tab_changed(self, index):
+        if self._current_connected_tab:
+            try:
+                self._current_connected_tab.player_state_changed.disconnect(self._update_play_button_icon)
+            except:
+                pass # Ignoram daca nu era conectat
+            self._current_connected_tab = None
+
         current_widget = self.preview_tabs.widget(index)
         controls_enabled = False
         
         if isinstance(current_widget, VideoTabContent):
             if current_widget.player is not None:
                 controls_enabled = True
+
+                self._current_connected_tab = current_widget
+                current_widget.player_state_changed.connect(self._update_play_button_icon)
+                
+                # 3. Fortam o actualizare vizuala imediata
+                self._update_play_button_icon(current_widget.player.playbackState())
         
         self.buttons.setEnabled(controls_enabled)
         opacity = 1.0 if controls_enabled else 0.3
         self.buttons.setWindowOpacity(opacity) 
+
+
+    def _update_play_button_icon(self, state):
+        play_btn = self.buttons.play_pause_button
+        if state == QMediaPlayer.PlayingState:
+            play_btn.setIcon(QIcon(play_btn.pause_icon_path))
+        else:
+            play_btn.setIcon(QIcon(play_btn.play_icon_path))
+    
 
     def _toggle_play_active_tab(self):
         current_widget = self.preview_tabs.currentWidget()

@@ -1,4 +1,5 @@
 __pycache__/
 testFiles/
-filesFromtracks/
+filesFromTracks/
+video_thumbnails_cache/
 #git push origin Marina

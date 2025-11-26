@@ -29,7 +29,10 @@ class VideoPreviewButtons(QWidget):
         self.prev_frame_button = self._create_btn("icons/prevFrame.png", 32)
         
         self.play_pause_button = self._create_btn("icons/play-button.png", 32)
-        
+
+        self.play_pause_button.play_icon_path = "icons/play-button.png"
+        self.play_pause_button.pause_icon_path = "icons/pause.png"
+
         self.next_frame_button = self._create_btn("icons/nextFrame.png", 32)
         self.faster_button = self._create_btn("icons/speedUp.png", 32)
         self.to_end_button = self._create_btn("icons/toEnd.png", 32)

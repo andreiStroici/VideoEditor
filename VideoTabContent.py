@@ -4,13 +4,14 @@ import hashlib
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTabWidget, QTabBar, QSizePolicy
 )
-from PySide6.QtCore import Qt, QUrl, QSize
+from PySide6.QtCore import Qt, QUrl, QSize , Signal
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
 
 
 class VideoTabContent(QWidget):
+    player_state_changed = Signal(QMediaPlayer.PlaybackState)
     SUPPORTED_IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
     SUPPORTED_VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv'}
     SUPPORTED_AUDIO_EXT = {'.mp3', '.wav', '.flac'}
@@ -147,6 +148,8 @@ class VideoTabContent(QWidget):
         self.audio_output.setVolume(0.7)
         self.player.play()
 
+        self.player.playbackStateChanged.connect(self.player_state_changed)
+
     def _setup_audio_player(self):
         self.visual_label = QLabel("Fisier audio incarcat")
         self.visual_label.setAlignment(Qt.AlignCenter)
@@ -164,6 +167,9 @@ class VideoTabContent(QWidget):
         self.player.setSource(QUrl.fromLocalFile(self.file_path))
         self.audio_output.setVolume(0.7)
         self.player.play()
+
+        self.player.playbackStateChanged.connect(self.player_state_changed)
+        
 
     def _setup_placeholder_view(self):
         self.visual_label = QLabel("Necunoscut")
