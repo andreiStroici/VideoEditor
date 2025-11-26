@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTabWidget, QTabBar, QSizePolicy
 )
 from PySide6.QtCore import Qt, QUrl, QSize , Signal
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaMetaData
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
 
@@ -169,7 +169,7 @@ class VideoTabContent(QWidget):
         self.player.play()
 
         self.player.playbackStateChanged.connect(self.player_state_changed)
-        
+
 
     def _setup_placeholder_view(self):
         self.visual_label = QLabel("Necunoscut")
@@ -181,3 +181,34 @@ class VideoTabContent(QWidget):
         
         self.display_pixmap = self._get_black_placeholder()
         self.visual_label.setPixmap(self.display_pixmap)
+
+
+    def step_frame(self, direction):
+        """
+        Muta video-ul cu un cadru inainte sau inapoi.
+        direction: 1 pentru Next Frame, -1 pentru Previous Frame
+        """
+        if not self.player:
+            return
+
+        if self.player.playbackState() == QMediaPlayer.PlayingState:
+            self.player.pause()
+
+        # Determinam durata unui frame (in milisecunde)
+        # Default la 33ms (aprox 30 FPS) daca nu gasim metadata
+        frame_duration = 33 
+        
+        meta_data = self.player.metaData()
+        if meta_data:
+            fps = meta_data.value(QMediaMetaData.Key.VideoFrameRate)
+            if fps and float(fps) > 0:
+                frame_duration = int(1000 / float(fps))
+        current_pos = self.player.position()
+        new_pos = current_pos + (direction * frame_duration)
+
+        if new_pos < 0:
+            new_pos = 0
+        elif new_pos > self.player.duration():
+            new_pos = self.player.duration()
+            
+        self.player.setPosition(new_pos)

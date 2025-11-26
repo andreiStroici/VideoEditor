@@ -44,7 +44,19 @@ class VideoPreview(QWidget):
         self.preview_tabs.currentChanged.connect(self._on_tab_changed)
         self.buttons.play_pause_button.clicked.connect(self._toggle_play_active_tab)
 
+        self.buttons.next_frame_button.clicked.connect(lambda: self._step_video(1))
+        self.buttons.prev_frame_button.clicked.connect(lambda: self._step_video(-1))
+
         self._on_tab_changed(0)
+
+
+    def _step_video(self, direction):
+        """Wrapper care apeleaza step_frame pe tab-ul activ."""
+        current_widget = self.preview_tabs.currentWidget()
+        
+        # Verificam daca widgetul curent este de tip VideoTabContent si are player
+        if isinstance(current_widget, VideoTabContent) and current_widget.player:
+            current_widget.step_frame(direction)
 
     def add_media_tab(self, file_path):
         new_tab_content = VideoTabContent(file_path)
