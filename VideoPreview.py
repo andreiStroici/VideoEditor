@@ -11,7 +11,6 @@ from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent, QIcon
 
 
 from VideoPreviewButtons import VideoPreviewButtons
-
 from VideoTabContent import VideoTabContent
 
 
@@ -25,7 +24,7 @@ class VideoPreview(QWidget):
 
         self.buttons = VideoPreviewButtons(SPACING)
         self.preview_tabs = QTabWidget()
-        self.preview_tabs.setTabsClosable(True)
+        self.preview_tabs.setTabsClosable(True) # Asta face ca tab-urile sa aiba X default
 
         self._current_connected_tab = None
         
@@ -74,7 +73,6 @@ class VideoPreview(QWidget):
             current_widget.go_to_end()
 
     def _step_video(self, direction):
-        """Wrapper care apeleaza step_frame pe tab-ul activ."""
         current_widget = self.preview_tabs.currentWidget()
         if isinstance(current_widget, VideoTabContent) and current_widget.player:
             current_widget.step_frame(direction)
@@ -112,6 +110,7 @@ class VideoPreview(QWidget):
         current_widget = self.preview_tabs.currentWidget()
         if isinstance(current_widget, VideoTabContent) and current_widget.player:
             current_widget.toggle_play_safe()
+            
     def _update_play_button_icon(self, state):
         play_btn = self.buttons.play_pause_button
         current_widget = self.preview_tabs.currentWidget()
@@ -127,7 +126,23 @@ class VideoPreview(QWidget):
         if index == 0: return
 
         widget = self.preview_tabs.widget(index)
-        if isinstance(widget, VideoTabContent) and widget.player:
-            widget.player.stop()
+        if isinstance(widget, VideoTabContent):
+            widget.cleanup()
         
         self.preview_tabs.removeTab(index)
+
+
+    def load_into_timeline_tab(self, file_path):
+        old_widget = self.preview_tabs.widget(0)
+        if isinstance(old_widget, VideoTabContent):
+            old_widget.cleanup()
+        
+        self.preview_tabs.removeTab(0)
+        new_content = VideoTabContent(file_path)
+        self.preview_tabs.insertTab(0, new_content, "Timeline")
+        self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
+        
+        self.main_timeline_tab = new_content 
+        self.preview_tabs.setCurrentIndex(0)
+        
+        return new_content
