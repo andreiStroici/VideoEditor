@@ -212,3 +212,14 @@ class VideoTabContent(QWidget):
             new_pos = self.player.duration()
             
         self.player.setPosition(new_pos)
+
+
+    def go_to_start(self):
+        """Sare la inceputul videoclipului."""
+        if self.player:
+            self.player.setPosition(0)
+
+    def go_to_end(self):
+        """Sare la finalul videoclipului."""
+        if self.player:
+            self.player.setPosition(self.player.duration())

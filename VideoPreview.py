@@ -47,8 +47,21 @@ class VideoPreview(QWidget):
         self.buttons.next_frame_button.clicked.connect(lambda: self._step_video(1))
         self.buttons.prev_frame_button.clicked.connect(lambda: self._step_video(-1))
 
+        self.buttons.to_start_button.clicked.connect(self._on_go_to_start)
+        self.buttons.to_end_button.clicked.connect(self._on_go_to_end)
+
         self._on_tab_changed(0)
 
+    
+    def _on_go_to_start(self):
+        current_widget = self.preview_tabs.currentWidget()
+        if isinstance(current_widget, VideoTabContent) and current_widget.player:
+            current_widget.go_to_start()
+
+    def _on_go_to_end(self):
+        current_widget = self.preview_tabs.currentWidget()
+        if isinstance(current_widget, VideoTabContent) and current_widget.player:
+            current_widget.go_to_end()
 
     def _step_video(self, direction):
         """Wrapper care apeleaza step_frame pe tab-ul activ."""
