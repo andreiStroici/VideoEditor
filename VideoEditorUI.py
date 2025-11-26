@@ -92,9 +92,9 @@ class VideoEditorUI(QWidget):
 
         _, ext = os.path.splitext(file_path)
         ext = ext.lower()
-        color = "#3a6ea5" # Albastru
-        if ext in self.VID_EXT: color = "#800080" # Mov
-        elif ext in self.AUD_EXT: color = "#FFA500" # Portocaliu
+        color = "#3a6ea5" 
+        if ext in self.VID_EXT: color = "#800080" 
+        elif ext in self.AUD_EXT: color = "#FFA500" 
 
         new_tab_content = self.video_preview.load_into_timeline_tab(file_path)
 
@@ -111,7 +111,8 @@ class VideoEditorUI(QWidget):
             track_widget.add_clip(path, duration, color)
             
             content_end = track_widget.get_content_end_ms()
-            final_slider_max = max(content_end, 10000)
+            
+            final_slider_max = content_end 
             self.timeline_container.time_slider.setMaximum(final_slider_max)
             
             try:
@@ -143,7 +144,7 @@ class VideoEditorUI(QWidget):
                 track_widget.set_playhead(pos)
             
             content_end = track_widget.get_content_end_ms()
-            slider_max = max(content_end, 10000) 
+            slider_max = max(content_end, 100) 
             slider.setMaximum(slider_max)
 
     def _on_playback_state_changed(self, state):

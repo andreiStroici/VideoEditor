@@ -7,7 +7,7 @@ class TimelineTrackWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #1e1e1e;")
+        self.setStyleSheet("background-color: #f0f0f0;") 
         
         self.duration_ms = 60000 
         self.playhead_pos_ms = 0
@@ -70,15 +70,14 @@ class TimelineTrackWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         visible_rect = event.rect()
-        
-        painter.fillRect(visible_rect, QColor("#1e1e1e"))
-
+        painter.fillRect(visible_rect, QColor("#f0f0f0"))
         ruler_height = 30
         ruler_rect = QRect(visible_rect.left(), 0, visible_rect.width(), ruler_height)
-        painter.fillRect(ruler_rect, QColor("#2d2d2d"))
+        painter.fillRect(ruler_rect, QColor("#e0e0e0"))
         
-        pen_tick = QPen(QColor("#808080"))
-        pen_text = QPen(QColor("#b0b0b0"))
+        pen_tick = QPen(QColor("#888888"))
+        pen_text = QPen(QColor("#333333"))
+        
         font = painter.font()
         font.setPointSize(8)
         painter.setFont(font)
@@ -91,21 +90,23 @@ class TimelineTrackWidget(QWidget):
 
         for sec in range(start_sec, end_sec):
             x = self.ms_to_px(sec * 1000)
+            
             painter.setPen(pen_tick)
             painter.drawLine(x, 15, x, 30)
+            
             if sec % 5 == 0:
                 painter.setPen(pen_text)
                 time_str = f"{sec // 60}:{sec % 60:02d}"
                 painter.drawText(x + 2, 12, time_str)
+            
             x_half = self.ms_to_px(sec * 1000 + 500)
             painter.drawLine(x_half, 22, x_half, 30)
 
         track_y = 40
         track_height = 60
         track_rect = QRect(visible_rect.left(), track_y, visible_rect.width(), track_height)
-        painter.fillRect(track_rect, QColor("#252525"))
-        
-        painter.setPen(QColor("#333333"))
+        painter.fillRect(track_rect, QColor("#ffffff")) # Alb
+        painter.setPen(QColor("#d0d0d0"))
         painter.drawLine(visible_rect.left(), track_y, visible_rect.right(), track_y)
         painter.drawLine(visible_rect.left(), track_y + track_height, visible_rect.right(), track_y + track_height)
 
@@ -122,17 +123,18 @@ class TimelineTrackWidget(QWidget):
             color_code = clip.get('color', '#3a6ea5')
             painter.fillRect(clip_rect, QColor(color_code))
             
+
             painter.setPen(QColor("white"))
             painter.drawRect(clip_rect)
             
             painter.drawText(clip_rect, Qt.AlignCenter, clip['name'])
 
-        # 5. Playhead
+
         ph_x = self.ms_to_px(self.playhead_pos_ms)
         if visible_rect.left() - 10 <= ph_x <= visible_rect.right() + 10:
-            painter.setPen(QPen(QColor("red"), 2))
+            painter.setPen(QPen(QColor("#ff0000"), 2))
             painter.drawLine(ph_x, 0, ph_x, self.height())
-            painter.setBrush(QColor("red"))
+            painter.setBrush(QColor("#ff0000"))
             painter.drawPolygon([
                 QPoint(ph_x - 6, 0),
                 QPoint(ph_x + 6, 0),

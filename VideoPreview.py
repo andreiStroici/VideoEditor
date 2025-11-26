@@ -9,10 +9,8 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent, QIcon
 
-
 from VideoPreviewButtons import VideoPreviewButtons
 from VideoTabContent import VideoTabContent
-
 
 class VideoPreview(QWidget):
     def __init__(self, SPACING, parent=None):
@@ -24,7 +22,7 @@ class VideoPreview(QWidget):
 
         self.buttons = VideoPreviewButtons(SPACING)
         self.preview_tabs = QTabWidget()
-        self.preview_tabs.setTabsClosable(True) # Asta face ca tab-urile sa aiba X default
+        self.preview_tabs.setTabsClosable(True) 
 
         self._current_connected_tab = None
         
@@ -49,12 +47,10 @@ class VideoPreview(QWidget):
         self.buttons.to_start_button.clicked.connect(self._on_go_to_start)
         self.buttons.to_end_button.clicked.connect(self._on_go_to_end)
 
-
         self.buttons.faster_button.clicked.connect(lambda: self._on_change_speed_directional("forward"))
         self.buttons.playback_button.clicked.connect(lambda: self._on_change_speed_directional("backward"))
 
         self._on_tab_changed(0)
-
 
     def _on_change_speed_directional(self, direction):
         current_widget = self.preview_tabs.currentWidget()
@@ -78,6 +74,14 @@ class VideoPreview(QWidget):
             current_widget.step_frame(direction)
 
     def add_media_tab(self, file_path):
+        target_path = os.path.abspath(file_path)
+        for i in range(1, self.preview_tabs.count()):
+            widget = self.preview_tabs.widget(i)
+            if isinstance(widget, VideoTabContent):
+                if widget.file_path == target_path:
+                    self.preview_tabs.setCurrentIndex(i)
+                    return
+        
         new_tab_content = VideoTabContent(file_path)
         tab_name = os.path.basename(file_path)
         new_index = self.preview_tabs.addTab(new_tab_content, tab_name)
@@ -97,14 +101,18 @@ class VideoPreview(QWidget):
         if isinstance(current_widget, VideoTabContent):
             if current_widget.player is not None:
                 controls_enabled = True
-                self._current_connected_tab = current_widget
-                current_widget.player_state_changed.connect(self._update_play_button_icon)
-                self._update_play_button_icon(current_widget.player.playbackState())
+                
+                if "black.jpg" in current_widget.file_path:
+                    controls_enabled = False
+                
+                if controls_enabled:
+                    self._current_connected_tab = current_widget
+                    current_widget.player_state_changed.connect(self._update_play_button_icon)
+                    self._update_play_button_icon(current_widget.player.playbackState())
         
         self.buttons.setEnabled(controls_enabled)
         opacity = 1.0 if controls_enabled else 0.3
         self.buttons.setWindowOpacity(opacity) 
-
 
     def _toggle_play_active_tab(self):
         current_widget = self.preview_tabs.currentWidget()
@@ -124,13 +132,10 @@ class VideoPreview(QWidget):
 
     def _close_tab(self, index):
         if index == 0: return
-
         widget = self.preview_tabs.widget(index)
         if isinstance(widget, VideoTabContent):
             widget.cleanup()
-        
         self.preview_tabs.removeTab(index)
-
 
     def load_into_timeline_tab(self, file_path):
         old_widget = self.preview_tabs.widget(0)

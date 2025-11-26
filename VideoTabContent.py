@@ -186,6 +186,9 @@ class VideoTabContent(QWidget):
             self._logical_rate = 1.0
             if isinstance(self.player, QMediaPlayer):
                 self.player.setPlaybackRate(1.0)
+            elif isinstance(self.player, ImagePlayer):
+                self.player.setPlaybackRate(1.0)
+
             self.player.pause()
             self.player.setPosition(0)
             if self.audio_output: self.audio_output.setMuted(False)
@@ -216,12 +219,9 @@ class VideoTabContent(QWidget):
         self.player.setPosition(new_pos)
 
     def change_speed_mode(self, direction):
-        if isinstance(self.player, ImagePlayer):
-            return
-
         if not self.player: return
         if direction == "backward":
-            if self.player.position() <= 50: # mic buffer de 50ms
+            if self.player.position() <= 50: 
                 self.reverse_timer.stop()
                 self._logical_rate = 1.0
                 self.player.pause()
@@ -282,6 +282,7 @@ class VideoTabContent(QWidget):
     def _check_position_for_end(self, pos):
         if not self.player: return
         if isinstance(self.player, ImagePlayer): return
+
         duration = self.player.duration()
         if duration <= 0: return
 
@@ -297,8 +298,9 @@ class VideoTabContent(QWidget):
         if status == QMediaPlayer.EndOfMedia:
             self.reverse_timer.stop()
             self._logical_rate = 1.0
-            if isinstance(self.player, QMediaPlayer):
+            if isinstance(self.player, QMediaPlayer) or isinstance(self.player, ImagePlayer):
                 self.player.setPlaybackRate(1.0)
+            
             self.player.pause()
             self.player_state_changed.emit(QMediaPlayer.PausedState)
 
@@ -339,5 +341,8 @@ class VideoTabContent(QWidget):
         if self.audio_output:
             self.audio_output.setMuted(False)
         self._logical_rate = 1.0
+        if isinstance(self.player, ImagePlayer):
+            self.player.setPlaybackRate(1.0)
+
         self.player.play()
         self.player_state_changed.emit(QMediaPlayer.PlayingState)
