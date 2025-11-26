@@ -50,8 +50,18 @@ class VideoPreview(QWidget):
         self.buttons.to_start_button.clicked.connect(self._on_go_to_start)
         self.buttons.to_end_button.clicked.connect(self._on_go_to_end)
 
+
+        self.buttons.faster_button.clicked.connect(lambda: self._on_change_speed_directional("forward"))
+        self.buttons.playback_button.clicked.connect(lambda: self._on_change_speed_directional("backward"))
+
         self._on_tab_changed(0)
 
+
+    def _on_change_speed_directional(self, direction):
+        current_widget = self.preview_tabs.currentWidget()
+        if isinstance(current_widget, VideoTabContent) and current_widget.player:
+            current_widget.change_speed_mode(direction)
+            self._update_play_button_icon(current_widget.player.playbackState())
     
     def _on_go_to_start(self):
         current_widget = self.preview_tabs.currentWidget()
@@ -66,8 +76,6 @@ class VideoPreview(QWidget):
     def _step_video(self, direction):
         """Wrapper care apeleaza step_frame pe tab-ul activ."""
         current_widget = self.preview_tabs.currentWidget()
-        
-        # Verificam daca widgetul curent este de tip VideoTabContent si are player
         if isinstance(current_widget, VideoTabContent) and current_widget.player:
             current_widget.step_frame(direction)
 
@@ -82,7 +90,7 @@ class VideoPreview(QWidget):
             try:
                 self._current_connected_tab.player_state_changed.disconnect(self._update_play_button_icon)
             except:
-                pass # Ignoram daca nu era conectat
+                pass
             self._current_connected_tab = None
 
         current_widget = self.preview_tabs.widget(index)
@@ -91,11 +99,8 @@ class VideoPreview(QWidget):
         if isinstance(current_widget, VideoTabContent):
             if current_widget.player is not None:
                 controls_enabled = True
-
                 self._current_connected_tab = current_widget
                 current_widget.player_state_changed.connect(self._update_play_button_icon)
-                
-                # 3. Fortam o actualizare vizuala imediata
                 self._update_play_button_icon(current_widget.player.playbackState())
         
         self.buttons.setEnabled(controls_enabled)
@@ -103,22 +108,20 @@ class VideoPreview(QWidget):
         self.buttons.setWindowOpacity(opacity) 
 
 
-    def _update_play_button_icon(self, state):
-        play_btn = self.buttons.play_pause_button
-        if state == QMediaPlayer.PlayingState:
-            play_btn.setIcon(QIcon(play_btn.pause_icon_path))
-        else:
-            play_btn.setIcon(QIcon(play_btn.play_icon_path))
-    
-
     def _toggle_play_active_tab(self):
         current_widget = self.preview_tabs.currentWidget()
         if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            state = current_widget.player.playbackState()
-            if state == QMediaPlayer.PlayingState:
-                current_widget.player.pause()
-            else:
-                current_widget.player.play()
+            current_widget.toggle_play_safe()
+    def _update_play_button_icon(self, state):
+        play_btn = self.buttons.play_pause_button
+        current_widget = self.preview_tabs.currentWidget()
+        is_reversing = False
+        if isinstance(current_widget, VideoTabContent):
+            is_reversing = current_widget.is_reversing()
+        if state == QMediaPlayer.PlayingState or is_reversing:
+            play_btn.setIcon(QIcon(play_btn.pause_icon_path))
+        else:
+            play_btn.setIcon(QIcon(play_btn.play_icon_path))
 
     def _close_tab(self, index):
         if index == 0: return

@@ -4,7 +4,7 @@ import hashlib
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTabWidget, QTabBar, QSizePolicy
 )
-from PySide6.QtCore import Qt, QUrl, QSize , Signal
+from PySide6.QtCore import Qt, QUrl, QSize , Signal , QTimer
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaMetaData
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent
@@ -34,6 +34,11 @@ class VideoTabContent(QWidget):
         self.video_widget = None
         self.visual_label = None
         self.display_pixmap = None 
+
+        self._logical_rate = 1.0
+        self.reverse_timer = QTimer(self)
+        self.reverse_timer.setInterval(33)  # 33ms = aprox 30 FPS
+        self.reverse_timer.timeout.connect(self._on_reverse_timer_tick)
 
         if self.ext in self.SUPPORTED_IMAGE_EXT:
             self._setup_image_view()
@@ -149,6 +154,7 @@ class VideoTabContent(QWidget):
         self.player.play()
 
         self.player.playbackStateChanged.connect(self.player_state_changed)
+        self.player.mediaStatusChanged.connect(self._on_media_status_changed)
 
     def _setup_audio_player(self):
         self.visual_label = QLabel("Fisier audio incarcat")
@@ -169,6 +175,7 @@ class VideoTabContent(QWidget):
         self.player.play()
 
         self.player.playbackStateChanged.connect(self.player_state_changed)
+        self.player.mediaStatusChanged.connect(self._on_media_status_changed)
 
 
     def _setup_placeholder_view(self):
@@ -184,18 +191,17 @@ class VideoTabContent(QWidget):
 
 
     def step_frame(self, direction):
-        """
-        Muta video-ul cu un cadru inainte sau inapoi.
-        direction: 1 pentru Next Frame, -1 pentru Previous Frame
-        """
         if not self.player:
             return
 
+        if self.reverse_timer.isActive():
+            self.stop_reverse_logic()
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+
         if self.player.playbackState() == QMediaPlayer.PlayingState:
             self.player.pause()
+            self.player_state_changed.emit(QMediaPlayer.PausedState) 
 
-        # Determinam durata unui frame (in milisecunde)
-        # Default la 33ms (aprox 30 FPS) daca nu gasim metadata
         frame_duration = 33 
         
         meta_data = self.player.metaData()
@@ -203,6 +209,7 @@ class VideoTabContent(QWidget):
             fps = meta_data.value(QMediaMetaData.Key.VideoFrameRate)
             if fps and float(fps) > 0:
                 frame_duration = int(1000 / float(fps))
+        
         current_pos = self.player.position()
         new_pos = current_pos + (direction * frame_duration)
 
@@ -215,11 +222,150 @@ class VideoTabContent(QWidget):
 
 
     def go_to_start(self):
-        """Sare la inceputul videoclipului."""
         if self.player:
+
+            if self.reverse_timer.isActive():
+                self.reverse_timer.stop()
+
+            self._logical_rate = 1.0
+            self.player.setPlaybackRate(1.0)
+
+            self.player.pause()
             self.player.setPosition(0)
+            if self.audio_output:
+                self.audio_output.setMuted(False)
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
 
     def go_to_end(self):
-        """Sare la finalul videoclipului."""
         if self.player:
+            if self.reverse_timer.isActive():
+                self.reverse_timer.stop()
+                self._logical_rate = 1.0
+
+            self.player.pause()
             self.player.setPosition(self.player.duration())
+            
+            if self.audio_output:
+                self.audio_output.setMuted(False)
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+
+
+    def _on_reverse_timer_tick(self):
+        if not self.player:
+            self.reverse_timer.stop()
+            return
+
+        if self.player.position() <= 0:
+            self.reverse_timer.stop()
+            self._logical_rate = 1.0
+            self.player.pause()
+            self.player.setPosition(0)
+            if self.audio_output: 
+                self.audio_output.setMuted(False)
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+            return
+        step_ms = 33 * abs(self._logical_rate)
+        new_pos = int(max(0, self.player.position() - step_ms))
+        self.player.setPosition(new_pos)
+
+    def change_speed_mode(self, direction):
+        if not self.player:
+            return
+        if direction == "backward":
+            if self.player.position() <= 0:
+                self.player_state_changed.emit(QMediaPlayer.PausedState)
+                return
+        rate = self._logical_rate
+        new_rate = 1.0
+        rate = round(rate, 1)
+
+        if direction == "forward":
+            if rate == 1.0: new_rate = 1.5
+            elif rate == 1.5: new_rate = 2.0
+            elif rate == 2.0: new_rate = 0.5
+            elif rate == 0.5: new_rate = 1.0
+            else: new_rate = 1.0
+
+        elif direction == "backward":
+            if rate > 0: new_rate = -0.5
+            elif rate == -0.5: new_rate = -1.0
+            elif rate == -1.0: new_rate = -1.5
+            elif rate == -1.5: new_rate = -2.0
+            elif rate == -2.0: new_rate = -0.5 
+            else: new_rate = -0.5
+
+        self._logical_rate = new_rate
+        print(f"Viteza setata la: {new_rate}x")
+        if new_rate > 0:
+            self.reverse_timer.stop() 
+            if self.audio_output: self.audio_output.setMuted(False)
+            self.player.setPlaybackRate(new_rate)
+            duration = self.player.duration()
+            position = self.player.position()
+            
+            if abs(duration - position) < 50:
+                 self.player.pause()
+                 self.player_state_changed.emit(QMediaPlayer.PausedState)
+            else:
+                if self.player.playbackState() != QMediaPlayer.PlayingState:
+                    self.player.play()
+
+        else:
+            if self.audio_output: self.audio_output.setMuted(True)
+            self.player.pause()
+            self.player.setPlaybackRate(1.0) 
+            
+            if not self.reverse_timer.isActive():
+                self.reverse_timer.start()
+
+    def _on_media_status_changed(self, status):
+        if status == QMediaPlayer.EndOfMedia:
+            self.reverse_timer.stop()
+            self._logical_rate = 1.0
+            self.player.setPlaybackRate(1.0)
+            self.player.pause()
+            if self.player.duration() > 0:
+                self.player.setPosition(self.player.duration())
+            if self.audio_output: 
+                self.audio_output.setMuted(False)
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+
+
+    def is_reversing(self):
+        return self.reverse_timer.isActive()
+
+    def stop_reverse_logic(self):
+        if self.reverse_timer.isActive():
+            self.reverse_timer.stop()  
+        self._logical_rate = 1.0
+        if self.audio_output:
+            self.audio_output.setMuted(False)
+
+    def toggle_play_safe(self):
+        if not self.player:
+            return
+
+        if self.reverse_timer.isActive():
+            self.stop_reverse_logic()
+            self.player.pause()
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+            return
+
+        if self.player.playbackState() == QMediaPlayer.PlayingState:
+            self.player.pause()
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+            return
+
+        current_pos = self.player.position()
+        duration = self.player.duration()
+
+        is_at_end = (abs(duration - current_pos) < 50) or (self.player.mediaStatus() == QMediaPlayer.EndOfMedia)
+        
+        if is_at_end:
+            self.player_state_changed.emit(QMediaPlayer.PausedState)
+        else:
+            if self.audio_output:
+                self.audio_output.setMuted(False)
+            self._logical_rate = 1.0
+            self.player.play()
+            self.player_state_changed.emit(QMediaPlayer.PlayingState)
