@@ -8,6 +8,8 @@ from filters import BlurFilter
 from transformations import CropTransform
 from timing import FadeInOut
 from text_operation import DrawText
+from timeline_operation import CutVideo, ConcatVideo
+from composition import Overlay
 
 ## run from project root!
 
@@ -82,6 +84,60 @@ def test_draw_text():
     print(f"DrawText passed! Output: {dest_file}")
     return timeline
 
+def test_cut_video():
+    print("\nTesting CutVideo...")
+    timeline = QTimeLine()
+    timeline.setProperty("input_file", "tests/test_video.mp4")
+
+    cut = CutVideo(start_time=2, end_time=5)
+    timeline = cut.applyOperation(timeline)
+
+    output_file = timeline.property("input_file")
+    assert os.path.exists(output_file), "CutVideo output file does not exist"
+
+    dest_file = "tests/output_cut_video.mp4"
+    shutil.copy2(output_file, dest_file)
+    print(f"CutVideo passed! Output: {dest_file}")
+    return timeline
+
+def test_concat_video():
+    print("\nTesting ConcatVideo...")
+    timeline1 = QTimeLine()
+    timeline1.setProperty("input_file", "tests/test_video.mp4")
+
+    timeline2 = QTimeLine()
+    timeline2.setProperty("input_file", "tests/sample2.mp4")
+
+    concat = ConcatVideo(otherClip=timeline2)
+    timeline1 = concat.applyOperation(timeline1)
+
+    output_file = timeline1.property("input_file")
+    assert os.path.exists(output_file), "ConcatVideo output file does not exist"
+
+    dest_file = "tests/output_concat_video.mp4"
+    shutil.copy2(output_file, dest_file)
+    print(f"ConcatVideo passed! Output: {dest_file}")
+    return timeline1
+
+def test_overlay():
+    print("\nTesting Overlay...")
+    timeline1 = QTimeLine()
+    timeline1.setProperty("input_file", "tests/test_video.mp4")
+
+    timeline2 = QTimeLine()
+    timeline2.setProperty("input_file", "tests/sample_video.mp4")
+
+    overlay = Overlay(otherClip=timeline2, alpha=0.5, position=(100, 100))
+    timeline1 = overlay.applyComposition(timeline1)
+
+    output_file = timeline1.property("input_file")
+    assert os.path.exists(output_file), "Overlay output file does not exist"
+
+    dest_file = "tests/output_overlay.mp4"
+    shutil.copy2(output_file, dest_file)
+    print(f"Overlay passed! Output: {dest_file}")
+    return timeline1
+
 if __name__ == "__main__":
     print("=" * 60)
     print("TESTING ALL MODULES")
@@ -92,6 +148,11 @@ if __name__ == "__main__":
         test_crop_transform()
         test_fade_in_out()
         test_draw_text()
+        test_cut_video()
+        test_concat_video()
+        test_overlay()
+
+        test_concat_video()
 
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED!")
