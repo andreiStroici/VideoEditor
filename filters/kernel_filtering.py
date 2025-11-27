@@ -20,8 +20,13 @@ class KernelFiltering(Filters):
             kernel_flat.extend(row)
 
         kernel_str = " ".join(map(str, kernel_flat))
-        normalize_val = "1" if self.normalize else "0"
 
-        filter_str = f"convolution='{kernel_str}:{kernel_str}:{kernel_str}:{kernel_str}':0m:{normalize_val}:{normalize_val}:{normalize_val}:{normalize_val}:0:128:128:128"
+        kernel_sum = sum(kernel_flat)
+        if self.normalize and kernel_sum != 0:
+            rdiv = f"1/{kernel_sum}"
+        else:
+            rdiv = "1"
+
+        filter_str = f"convolution='{kernel_str}:{kernel_str}:{kernel_str}:{kernel_str}:{rdiv}:{rdiv}:{rdiv}:{rdiv}'"
 
         return self._apply_ffmpeg(qTimeLine, filter_str, "video")
