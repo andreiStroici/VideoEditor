@@ -18,6 +18,7 @@ class Toolbar(QWidget):
         self.add_files_button.setIcon(add_file_icon)
         self.add_files_button.setIconSize(QSize(32,32))
         self.add_files_button.setStyleSheet(self._btn_style())
+        self.add_files_button.setFocusPolicy(Qt.NoFocus) # MODIFICARE: Nu fura focusul
 
         #Open Folder Button
         self.open_folder_button=QPushButton()
@@ -25,30 +26,32 @@ class Toolbar(QWidget):
         self.open_folder_button.setIcon(open_folder_icon)
         self.open_folder_button.setIconSize(QSize(32,32))
         self.open_folder_button.setStyleSheet(self._btn_style())
+        self.open_folder_button.setFocusPolicy(Qt.NoFocus) # MODIFICARE
+
         #Save Project Button
         self.save_project_button=QPushButton()
         save_project_icon=QIcon("icons/save_project.png")
         self.save_project_button.setIcon(save_project_icon)
         self.save_project_button.setIconSize(QSize(32,32))
         self.save_project_button.setStyleSheet(self._btn_style())
+        self.save_project_button.setFocusPolicy(Qt.NoFocus) # MODIFICARE
+
         #Undo Button
         self.undo_button=QPushButton()
         undo_icon=QIcon("icons/undo.png")
         self.undo_button.setIcon(undo_icon)
         self.undo_button.setIconSize(QSize(32,32))
         self.undo_button.setStyleSheet(self._btn_style())
+        self.undo_button.setFocusPolicy(Qt.NoFocus) # MODIFICARE
+
         #Redo Button
         self.redo_button=QPushButton()
         redo_icon=QIcon("icons/redo.png")
         self.redo_button.setIcon(redo_icon)
         self.redo_button.setIconSize(QSize(32,32))
         self.redo_button.setStyleSheet(self._btn_style())
-        #Export Project Button
-        self.export_project_button=QPushButton()
-        export_project_icon=QIcon("icons/export_project.png")
-        self.export_project_button.setIcon(export_project_icon)
-        self.export_project_button.setIconSize(QSize(32,32))
-        self.export_project_button.setStyleSheet(self._btn_style())
+        self.redo_button.setFocusPolicy(Qt.NoFocus) # MODIFICARE
+
 
         #add all buttons to toolbar
         self.toolbar.addSpacing(SPACING*3)
@@ -57,7 +60,6 @@ class Toolbar(QWidget):
         self.toolbar.addWidget(self.save_project_button)
         self.toolbar.addWidget(self.undo_button)
         self.toolbar.addWidget(self.redo_button)
-        self.toolbar.addWidget(self.export_project_button)
         self.toolbar.addStretch()
 
         #defined signals conections
@@ -71,6 +73,7 @@ class Toolbar(QWidget):
                 border: none;
                 background: transparent;
                 padding: 0;
+                outline: none; /* MODIFICARE: Elimina chenarul punctat */
             }
             QPushButton:hover {
                 background: rgba(255,255,255,0.1);
@@ -86,4 +89,4 @@ class Toolbar(QWidget):
     def _on_open_folder(self):
             folder = QFileDialog.getExistingDirectory(self,"Select folder",os.path.expanduser("~"))
             if folder:
-                self.folder_selected.emit(folder)    
+                self.folder_selected.emit(folder)

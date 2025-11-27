@@ -18,7 +18,8 @@ class VideoTabContent(QWidget):
     SUPPORTED_VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv'}
     SUPPORTED_AUDIO_EXT = {'.mp3', '.wav', '.flac'}
 
-    def __init__(self, file_path):
+
+    def __init__(self, file_path, is_timeline=False):
         super().__init__()
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("background-color: black;") 
@@ -30,6 +31,7 @@ class VideoTabContent(QWidget):
 
         self.file_path = os.path.abspath(file_path)
         self.ext = os.path.splitext(file_path)[1].lower()
+        self.is_timeline = is_timeline  
         
         self.player = None 
         self.audio_output = None
@@ -100,6 +102,17 @@ class VideoTabContent(QWidget):
             pix.fill(Qt.darkGray)
             return pix
 
+    def _get_music_placeholder(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        music_path = os.path.join(base_dir, "icons", "music.jpg")
+        
+
+        if not os.path.exists(music_path):
+            return self._get_black_placeholder()
+
+        cached_path = self._create_optimized_cache(music_path)
+        return QPixmap(cached_path)
+
     def _setup_image_view(self):
         self.visual_label = QLabel()
         self.visual_label.setAlignment(Qt.AlignCenter)
@@ -133,7 +146,12 @@ class VideoTabContent(QWidget):
         self.visual_label.setAlignment(Qt.AlignCenter)
         self.visual_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.layout.addWidget(self.visual_label)
-        self.display_pixmap = self._get_black_placeholder()
+        
+        if self.is_timeline:
+            self.display_pixmap = self._get_black_placeholder()
+        else:
+            self.display_pixmap = self._get_music_placeholder()
+
         self.visual_label.setPixmap(self.display_pixmap)
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()

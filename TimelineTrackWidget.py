@@ -14,6 +14,9 @@ class TimelineTrackWidget(QWidget):
         self.pixels_per_second = 50 
         self.clips = []
         
+        self.selected_index = -1
+        self._dragging_playhead = False
+
         self._update_dimensions()
 
     def resizeEvent(self, event):
@@ -37,7 +40,16 @@ class TimelineTrackWidget(QWidget):
         self.setMinimumHeight(300)
 
     def set_playhead(self, ms):
-        self.playhead_pos_ms = max(0, min(ms, self.duration_ms))
+        if not self.clips:
+            self.playhead_pos_ms = 0
+        else:
+            self.playhead_pos_ms = max(0, min(ms, self.duration_ms))
+        self.update()
+
+    def clear_tracks(self):
+        self.clips = []
+        self.selected_index = -1
+        self.playhead_pos_ms = 0
         self.update()
 
     def add_clip(self, file_path, duration_ms, color):
@@ -52,12 +64,46 @@ class TimelineTrackWidget(QWidget):
             'color': color 
         }
         self.clips.append(new_clip)
+        self.selected_index = len(self.clips) - 1
         
         end_time = self.playhead_pos_ms + duration_ms
         if end_time > self.duration_ms:
             self.set_duration(end_time + 5000) 
         else:
             self.update()
+
+    def delete_selected_clip(self):
+        if self.selected_index != -1 and 0 <= self.selected_index < len(self.clips):
+            del self.clips[self.selected_index]
+            self.selected_index = -1 
+            self.update()
+            return True
+        return False
+
+    def get_clip_at_ms(self, ms):
+        for clip in self.clips:
+            start = clip['start']
+            end = start + clip['duration']
+            if start <= ms < end:
+                return clip
+        return None
+    
+    def get_end_of_clip_before(self, current_pos):
+        best_end = 0
+        for clip in self.clips:
+            end = clip['start'] + clip['duration']
+            if end <= current_pos:
+                if end > best_end:
+                    best_end = end
+        return best_end
+
+    def get_content_end_ms(self):
+        if not self.clips: return 0
+        max_end = 0
+        for clip in self.clips:
+            end = clip['start'] + clip['duration']
+            if end > max_end: max_end = end
+        return max_end
 
     def ms_to_px(self, ms):
         return int((ms / 1000) * self.pixels_per_second)
@@ -105,12 +151,12 @@ class TimelineTrackWidget(QWidget):
         track_y = 40
         track_height = 60
         track_rect = QRect(visible_rect.left(), track_y, visible_rect.width(), track_height)
-        painter.fillRect(track_rect, QColor("#ffffff")) # Alb
+        painter.fillRect(track_rect, QColor("#ffffff")) 
         painter.setPen(QColor("#d0d0d0"))
         painter.drawLine(visible_rect.left(), track_y, visible_rect.right(), track_y)
         painter.drawLine(visible_rect.left(), track_y + track_height, visible_rect.right(), track_y + track_height)
 
-        for clip in self.clips:
+        for i, clip in enumerate(self.clips):
             x_start = self.ms_to_px(clip['start'])
             w_clip = self.ms_to_px(clip['duration'])
             x_end = x_start + w_clip
@@ -123,12 +169,16 @@ class TimelineTrackWidget(QWidget):
             color_code = clip.get('color', '#3a6ea5')
             painter.fillRect(clip_rect, QColor(color_code))
             
-
-            painter.setPen(QColor("white"))
-            painter.drawRect(clip_rect)
+            if i == self.selected_index:
+                high_pen = QPen(QColor("yellow"), 3)
+                painter.setPen(high_pen)
+                painter.drawRect(clip_rect)
+            else:
+                painter.setPen(QColor("white"))
+                painter.drawRect(clip_rect)
             
+            painter.setPen(QColor("white"))
             painter.drawText(clip_rect, Qt.AlignCenter, clip['name'])
-
 
         ph_x = self.ms_to_px(self.playhead_pos_ms)
         if visible_rect.left() - 10 <= ph_x <= visible_rect.right() + 10:
@@ -144,25 +194,49 @@ class TimelineTrackWidget(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             x = event.x()
-            ms = self.px_to_ms(x)
-            ms = max(0, ms)
-            self.playhead_pos_ms = ms
-            self.seek_request.emit(ms)
+            y = event.y()
+
+            if self.clips:
+                current_ph_x = self.ms_to_px(self.playhead_pos_ms)
+                if abs(x - current_ph_x) <= 10:
+                    self._dragging_playhead = True
+                    return 
+
+            self._dragging_playhead = False
+            
+            if not self.clips: return
+
+            track_y_start = 40
+            track_y_end = 100
+            
+            clicked_on_clip = False
+            if track_y_start <= y <= track_y_end:
+                for i in range(len(self.clips) - 1, -1, -1):
+                    clip = self.clips[i]
+                    x_start = self.ms_to_px(clip['start'])
+                    w_clip = self.ms_to_px(clip['duration'])
+                    
+                    if x_start <= x <= x_start + w_clip:
+                        self.selected_index = i
+                        clicked_on_clip = True
+                        break
+            if not clicked_on_clip:
+                self.selected_index = -1
+            
             self.update()
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.LeftButton:
-            x = event.x()
-            ms = self.px_to_ms(x)
-            ms = max(0, ms)
-            self.playhead_pos_ms = ms
-            self.seek_request.emit(ms)
-            self.update()
+            if not self.clips: return
 
-    def get_content_end_ms(self):
-        if not self.clips: return 0
-        max_end = 0
-        for clip in self.clips:
-            end = clip['start'] + clip['duration']
-            if end > max_end: max_end = end
-        return max_end
+            if self._dragging_playhead:
+                x = event.x()
+                ms = self.px_to_ms(x)
+                ms = max(0, ms)
+                self.playhead_pos_ms = ms
+                self.seek_request.emit(ms)
+                self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging_playhead = False

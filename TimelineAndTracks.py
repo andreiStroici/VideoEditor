@@ -20,7 +20,6 @@ class TimelineAndTracks(QWidget):
         self.timeline_layout.setSpacing(SPACING)
         self.timeline_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- Top bar ---
         self.timeline_topbar = QHBoxLayout()
         self.timeline_topbar.setSpacing(SPACING)
 
@@ -28,26 +27,28 @@ class TimelineAndTracks(QWidget):
         self.align_tracks_button = self._create_icon_btn("icons/magnet.png")
         self.cut_button = self._create_icon_btn("icons/cut.png")
         self.place_button = self._create_icon_btn("icons/place.png") 
+        self.delete_button = self._create_icon_btn("icons/trash.png") 
+
         
         self.timeline_topbar.addWidget(self.add_tracks_button)
         self.timeline_topbar.addWidget(self.align_tracks_button)
         self.timeline_topbar.addWidget(self.cut_button)
         self.timeline_topbar.addWidget(self.place_button)
+        self.timeline_topbar.addWidget(self.delete_button)
+
         
         self.time_slider = QSlider(Qt.Horizontal)
         self.time_slider.setMinimum(0)
         self.time_slider.setMaximum(10000) 
-        # Si sliderul poate avea focus border, il scoatem si pe el
         self.time_slider.setFocusPolicy(Qt.NoFocus)
         self.time_slider.setValue(0)
         
         self.timeline_topbar.addWidget(self.time_slider)
         self.timeline_layout.addLayout(self.timeline_topbar)
 
-        # --- Scroll Area ---
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFocusPolicy(Qt.NoFocus) # Scoatem focus si de pe scroll area
+        self.scroll_area.setFocusPolicy(Qt.NoFocus) 
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
@@ -63,7 +64,6 @@ class TimelineAndTracks(QWidget):
         btn.setIcon(QIcon(icon_path))
         btn.setIconSize(QSize(32,32))
         
-        # --- FIX: Scoate conturul albastru de focus ---
         btn.setFocusPolicy(Qt.NoFocus)
         
         btn.setStyleSheet("""

@@ -28,8 +28,7 @@ class VideoPreview(QWidget):
         
         base_dir = os.path.dirname(os.path.abspath(__file__))
         timeline_image_path = os.path.join(base_dir, "icons", "black.jpg")
-        
-        self.main_timeline_tab = VideoTabContent(timeline_image_path)
+        self.main_timeline_tab = VideoTabContent(timeline_image_path, is_timeline=True)
         
         self.preview_tabs.addTab(self.main_timeline_tab, "Timeline")
         self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
@@ -143,11 +142,33 @@ class VideoPreview(QWidget):
             old_widget.cleanup()
         
         self.preview_tabs.removeTab(0)
-        new_content = VideoTabContent(file_path)
+        
+        new_content = VideoTabContent(file_path, is_timeline=True)
+        
         self.preview_tabs.insertTab(0, new_content, "Timeline")
         self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
         
         self.main_timeline_tab = new_content 
         self.preview_tabs.setCurrentIndex(0)
         
+        return new_content
+
+
+    def reset_timeline_to_black(self):
+        old_widget = self.preview_tabs.widget(0)
+        if isinstance(old_widget, VideoTabContent):
+            old_widget.cleanup()
+        
+        self.preview_tabs.removeTab(0)
+        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        timeline_image_path = os.path.join(base_dir, "icons", "black.jpg")
+
+        new_content = VideoTabContent(timeline_image_path, is_timeline=True)
+        
+        self.preview_tabs.insertTab(0, new_content, "Timeline")
+        self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
+        self.preview_tabs.setCurrentIndex(0)
+        
+        self.main_timeline_tab = new_content
         return new_content

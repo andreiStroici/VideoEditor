@@ -2,7 +2,7 @@ import os
 from PySide6.QtWidgets import QWidget, QTabWidget, QListWidget, QVBoxLayout, QListWidgetItem, QSizePolicy
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QPixmap
-
+from ClickableListWidget import ClickableListWidget
 
 class MediaTabs(QWidget):
     file_double_clicked = Signal(str)
@@ -24,14 +24,16 @@ class MediaTabs(QWidget):
 
         self.media_tabs = QTabWidget()
         self.media_tabs.setContentsMargins(0, 0, 0, 0)
+        self.media_tabs.setFocusPolicy(Qt.NoFocus)
 
-        self.show_all_tab_list = QListWidget()
+        # Folosim ClickableListWidget
+        self.show_all_tab_list = ClickableListWidget()
         self._setup_media_grid(self.show_all_tab_list, SPACING)
 
-        self.video_list = QListWidget()
+        self.video_list = ClickableListWidget()
         self._setup_media_grid(self.video_list, SPACING)
 
-        self.audio_list = QListWidget()
+        self.audio_list = ClickableListWidget()
         self._setup_media_grid(self.audio_list, SPACING)
 
         self.media_tabs.addTab(self.show_all_tab_list, "Show All")
@@ -60,19 +62,37 @@ class MediaTabs(QWidget):
         file_list.setSpacing(SPACING)
         file_list.setWordWrap(False)
         file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        file_list.resizeEvent = self._on_resize
+        
+        file_list.setFocusPolicy(Qt.NoFocus)
+        file_list.setStyleSheet("""
+            QListWidget {
+                outline: none;
+                border: none;
+            }
+            QListWidget::item:selected {
+                background-color: #3a6ea5;
+                outline: none;
+                border: none;
+            }
+            QListWidget::item:focus {
+                outline: none;
+                border: none;
+            }
+        """)
+   
+        file_list.resizeEvent = lambda event: self._on_resize_proxy(file_list, event)
 
-    def _on_resize(self, event):
-        self._update_grid_size()
-        QListWidget.resizeEvent(self.show_all_tab_list, event)
+    def _on_resize_proxy(self, widget, event):
+        self._update_grid_size(widget)
+        ClickableListWidget.resizeEvent(widget, event)
 
-    def _update_grid_size(self):
-        count = self.show_all_tab_list.count()
+    def _update_grid_size(self, widget):
+        count = widget.count()
         if count == 0:
             return
-        list_width = self.show_all_tab_list.viewport().width()
-        icon_width = self.show_all_tab_list.iconSize().width()
-        spacing = self.show_all_tab_list.spacing()
+        list_width = widget.viewport().width()
+        icon_width = widget.iconSize().width()
+        spacing = widget.spacing()
 
         items_per_row = max(1, list_width // (icon_width + spacing))
         extra_space = list_width - (items_per_row * icon_width)
@@ -81,8 +101,8 @@ class MediaTabs(QWidget):
         else:
             dynamic_spacing = extra_space // 2
 
-        self.show_all_tab_list.setGridSize(
-            QSize(icon_width + dynamic_spacing, self.show_all_tab_list.gridSize().height())
+        widget.setGridSize(
+            QSize(icon_width + dynamic_spacing, widget.gridSize().height())
         )
 
     def _generate_video_thumbnail(self, path):
@@ -145,7 +165,9 @@ class MediaTabs(QWidget):
                 item_video.setTextAlignment(Qt.AlignCenter)
                 self.video_list.addItem(item_video)
 
-        self._update_grid_size()
+        self._update_grid_size(self.show_all_tab_list)
+        self._update_grid_size(self.video_list)
+        self._update_grid_size(self.audio_list)
 
     def add_files(self, paths: list):
         added = 0
