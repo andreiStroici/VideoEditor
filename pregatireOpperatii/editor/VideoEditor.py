@@ -1,0 +1,2 @@
+class VideoEditor:
+    pass
