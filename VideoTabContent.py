@@ -113,6 +113,11 @@ class VideoTabContent(QWidget):
         cached_path = self._create_optimized_cache(music_path)
         return QPixmap(cached_path)
 
+    def set_explicit_duration(self, duration_ms):
+        if isinstance(self.player, ImagePlayer):
+            self.player._duration = duration_ms
+            self.player.durationChanged.emit(duration_ms)
+
     def _setup_image_view(self):
         self.visual_label = QLabel()
         self.visual_label.setAlignment(Qt.AlignCenter)
@@ -122,9 +127,16 @@ class VideoTabContent(QWidget):
         if cached_path: self.display_pixmap = QPixmap(cached_path)
         else: self.display_pixmap = self._get_black_placeholder()
         if not self.display_pixmap.isNull(): self.visual_label.setPixmap(self.display_pixmap)
-        self.player = ImagePlayer(duration_ms=5000, parent=self)
+        duration = 5000
+        if "blackCat.jpg" in self.file_path:
+             duration = 5000 
+             
+        self.player = ImagePlayer(duration_ms=duration, parent=self)
+        if self.is_timeline:
+            self.player.isOnTrack = True
+        
         self.player.playbackStateChanged.connect(self.player_state_changed)
-        QTimer.singleShot(100, lambda: self.player.durationChanged.emit(5000))
+        QTimer.singleShot(100, lambda: self.player.durationChanged.emit(duration))
 
     def _setup_video_player(self):
         self.video_widget = QVideoWidget()
@@ -280,20 +292,23 @@ class VideoTabContent(QWidget):
             self.reverse_timer.stop() 
             if self.audio_output: self.audio_output.setMuted(False)
             
-            was_playing = (self.player.playbackState() == QMediaPlayer.PlayingState)
-            
-            self.player.pause()
-            self.player.setPlaybackRate(new_rate)
-            
-            if not is_at_end:
-                self.player.play()
-            else:
-                self.player_state_changed.emit(QMediaPlayer.PausedState)
+            if isinstance(self.player, QMediaPlayer):
+                self.player.pause()
+                self.player.setPlaybackRate(new_rate)
+                if not is_at_end:
+                    self.player.play()
+                else:
+                    self.player_state_changed.emit(QMediaPlayer.PausedState)
+            elif isinstance(self.player, ImagePlayer):
+                self.player.setPlaybackRate(new_rate)
+                if not is_at_end:
+                    self.player.play()
 
         else:
             if self.audio_output: self.audio_output.setMuted(True)
             self.player.pause()
-            self.player.setPlaybackRate(1.0) 
+            if isinstance(self.player, QMediaPlayer):
+                 self.player.setPlaybackRate(1.0) 
             if not self.reverse_timer.isActive():
                 self.reverse_timer.start()
 
@@ -309,10 +324,17 @@ class VideoTabContent(QWidget):
             self._logical_rate = 1.0
             self.player.setPlaybackRate(1.0)
 
+        if self.is_timeline:
+             return 
+
+
         if pos >= duration and self.player.playbackState() == QMediaPlayer.PlayingState:
             self._on_media_status_changed(QMediaPlayer.EndOfMedia)
 
     def _on_media_status_changed(self, status):
+        if self.is_timeline and status == QMediaPlayer.EndOfMedia:
+             return
+
         if status == QMediaPlayer.EndOfMedia:
             self.reverse_timer.stop()
             self._logical_rate = 1.0
@@ -352,6 +374,9 @@ class VideoTabContent(QWidget):
         is_at_end = (abs(duration - current_pos) < 50) or \
                     (isinstance(self.player, QMediaPlayer) and self.player.mediaStatus() == QMediaPlayer.EndOfMedia)
         
+        if self.is_timeline:
+             is_at_end = False 
+
         if is_at_end:
             self.player_state_changed.emit(QMediaPlayer.PausedState)
             return

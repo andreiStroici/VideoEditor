@@ -12,8 +12,8 @@ class ImagePlayer(QObject):
         self._duration = duration_ms
         self._position = 0
         self._state = QMediaPlayer.StoppedState
-        self._playback_rate = 1.0  # Viteză implicită
-        
+        self._playback_rate = 1.0 
+        self.isOnTrack = False 
         self.timer = QTimer(self)
         self.timer.setInterval(33) # ~30 FPS
         self.timer.timeout.connect(self._on_tick)
@@ -36,10 +36,12 @@ class ImagePlayer(QObject):
         self.playbackStateChanged.emit(self._state)
 
     def setPosition(self, position):
-        self._position = max(0, min(position, self._duration))
+        if self.isOnTrack:
+            self._position = max(0, position)
+        else:
+            self._position = max(0, min(position, self._duration))
         self.positionChanged.emit(self._position)
-        
-        if self._position >= self._duration:
+        if not self.isOnTrack and self._position >= self._duration:
             if self._state == QMediaPlayer.PlayingState:
                 self.pause()
             self.mediaStatusChanged.emit(QMediaPlayer.EndOfMedia)
@@ -66,14 +68,16 @@ class ImagePlayer(QObject):
 
     def _on_tick(self):
         step = int(33 * self._playback_rate)
-        
         self._position += step
-        
+
         if self._position >= self._duration:
-            self._position = self._duration
-            self.pause() # Stop la final
-            self.positionChanged.emit(self._position)
-            self.mediaStatusChanged.emit(QMediaPlayer.EndOfMedia)
+            if self.isOnTrack:
+                self.positionChanged.emit(self._position)
+            else:
+                self._position = self._duration
+                self.pause()
+                self.positionChanged.emit(self._position)
+                self.mediaStatusChanged.emit(QMediaPlayer.EndOfMedia)
         else:
             self.positionChanged.emit(self._position)
             

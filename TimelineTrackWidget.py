@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, Signal, QRect, QPoint, QSize
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont
+import os 
 
 class TimelineTrackWidget(QWidget):
     seek_request = Signal(int)
@@ -16,6 +17,9 @@ class TimelineTrackWidget(QWidget):
         
         self.selected_index = -1
         self._dragging_playhead = False
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.black_path = os.path.join(base_dir, "icons", "blackCat.jpg")
 
         self._update_dimensions()
 
@@ -40,10 +44,10 @@ class TimelineTrackWidget(QWidget):
         self.setMinimumHeight(300)
 
     def set_playhead(self, ms):
-        if not self.clips:
-            self.playhead_pos_ms = 0
-        else:
-            self.playhead_pos_ms = max(0, min(ms, self.duration_ms))
+        self.playhead_pos_ms = max(0, ms)
+        # Auto-expand
+        if self.playhead_pos_ms > self.duration_ms:
+             self.set_duration(self.playhead_pos_ms + 5000)
         self.update()
 
     def clear_tracks(self):
@@ -52,30 +56,107 @@ class TimelineTrackWidget(QWidget):
         self.playhead_pos_ms = 0
         self.update()
 
-    def add_clip(self, file_path, duration_ms, color):
-        import os
-        name = os.path.basename(file_path)
+    def _rebuild_track_with_gaps(self):
+        """
+        Reconstructs self.clips. If there is space between clips, 
+        insert a blackCat.jpg clip of EXACT required duration.
+        """
+        user_clips = [c for c in self.clips if not c.get('is_auto_gap', False)]
+        user_clips.sort(key=lambda x: x['start'])
         
+        new_clip_list = []
+        current_time = 0
+        
+        for clip in user_clips:
+            if clip['start'] > current_time:
+                gap_duration = clip['start'] - current_time
+                
+                if gap_duration > 0:
+                    black_clip = {
+                        'path': self.black_path,
+                        'start': current_time,
+                        'duration': gap_duration, 
+                        'name': "Gap",
+                        'color': "#000000", 
+                        'is_auto_gap': True 
+                    }
+                    new_clip_list.append(black_clip)
+            
+            new_clip_list.append(clip)
+            current_time = clip['start'] + clip['duration']
+            
+        self.clips = new_clip_list
+
+    def add_clip(self, file_path, duration_ms, color):
+        self.add_clip_at_pos(file_path, self.playhead_pos_ms, duration_ms, color)
+
+    def shift_clips_after(self, threshold_ms, shift_amount_ms):
+        for clip in self.clips:
+            if not clip.get('is_auto_gap', False) and clip['start'] >= threshold_ms:
+                clip['start'] += shift_amount_ms
+        self.update()
+
+    def add_clip_at_pos(self, file_path, start_pos, duration_ms, color):
+        import os
+        
+        self.shift_clips_after(start_pos, duration_ms)
+
+        name = os.path.basename(file_path)
         new_clip = {
             'path': file_path,
-            'start': self.playhead_pos_ms,
+            'start': start_pos,
             'duration': duration_ms,
             'name': name,
-            'color': color 
+            'color': color,
+            'is_auto_gap': False
         }
         self.clips.append(new_clip)
-        self.selected_index = len(self.clips) - 1
         
-        end_time = self.playhead_pos_ms + duration_ms
-        if end_time > self.duration_ms:
-            self.set_duration(end_time + 5000) 
+        self._rebuild_track_with_gaps()
+        
+        # Restore selection
+        for i, c in enumerate(self.clips):
+            if c.get('start') == start_pos and c.get('path') == file_path:
+                self.selected_index = i
+                break
+
+        max_end = 0
+        for c in self.clips:
+            end = c['start'] + c['duration']
+            if end > max_end: max_end = end
+            
+        if max_end > self.duration_ms:
+            self.set_duration(max_end + 5000) 
         else:
             self.update()
 
+    def trim_clip_at(self, ms):
+        did_trim = False
+        for clip in self.clips:
+            if clip.get('is_auto_gap', False): continue
+            
+            start = clip['start']
+            end = start + clip['duration']
+            if start < ms < end:
+                new_duration = ms - start
+                clip['duration'] = new_duration
+                did_trim = True
+        
+        if did_trim:
+            self._rebuild_track_with_gaps()
+            
+        return did_trim
+
     def delete_selected_clip(self):
         if self.selected_index != -1 and 0 <= self.selected_index < len(self.clips):
+            if self.clips[self.selected_index].get('is_auto_gap', False):
+                return False
+
             del self.clips[self.selected_index]
             self.selected_index = -1 
+            
+            self._rebuild_track_with_gaps()
+            
             self.update()
             return True
         return False
@@ -88,6 +169,14 @@ class TimelineTrackWidget(QWidget):
                 return clip
         return None
     
+    def get_next_clip_start_after(self, ms):
+        next_start = None
+        for clip in self.clips:
+            if clip['start'] > ms:
+                if next_start is None or clip['start'] < next_start:
+                    next_start = clip['start']
+        return next_start
+
     def get_end_of_clip_before(self, current_pos):
         best_end = 0
         for clip in self.clips:
@@ -169,10 +258,14 @@ class TimelineTrackWidget(QWidget):
             color_code = clip.get('color', '#3a6ea5')
             painter.fillRect(clip_rect, QColor(color_code))
             
-            if i == self.selected_index:
+            is_gap = clip.get('is_auto_gap', False)
+            
+            if i == self.selected_index and not is_gap:
                 high_pen = QPen(QColor("yellow"), 3)
                 painter.setPen(high_pen)
                 painter.drawRect(clip_rect)
+            elif is_gap:
+                painter.setPen(QColor("black")) # Visual debug for gap
             else:
                 painter.setPen(QColor("white"))
                 painter.drawRect(clip_rect)
@@ -196,15 +289,18 @@ class TimelineTrackWidget(QWidget):
             x = event.x()
             y = event.y()
 
-            if self.clips:
-                current_ph_x = self.ms_to_px(self.playhead_pos_ms)
-                if abs(x - current_ph_x) <= 10:
-                    self._dragging_playhead = True
-                    return 
+            current_ph_x = self.ms_to_px(self.playhead_pos_ms)
+            if abs(x - current_ph_x) <= 10:
+                self._dragging_playhead = True
+                return 
 
             self._dragging_playhead = False
             
-            if not self.clips: return
+            if not self.clips:
+                 ms = self.px_to_ms(x)
+                 self.set_playhead(ms)
+                 self.seek_request.emit(ms)
+                 return
 
             track_y_start = 40
             track_y_end = 100
@@ -217,18 +313,21 @@ class TimelineTrackWidget(QWidget):
                     w_clip = self.ms_to_px(clip['duration'])
                     
                     if x_start <= x <= x_start + w_clip:
-                        self.selected_index = i
-                        clicked_on_clip = True
+                        # Prevent selecting gaps
+                        if not clip.get('is_auto_gap', False):
+                            self.selected_index = i
+                            clicked_on_clip = True
                         break
             if not clicked_on_clip:
                 self.selected_index = -1
+                ms = self.px_to_ms(x)
+                self.set_playhead(ms)
+                self.seek_request.emit(ms)
             
             self.update()
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.LeftButton:
-            if not self.clips: return
-
             if self._dragging_playhead:
                 x = event.x()
                 ms = self.px_to_ms(x)
