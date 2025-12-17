@@ -2,9 +2,10 @@ import sys
 import os
 import hashlib
 import subprocess 
+import time
 
-from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget, QMessageBox
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget, QMessageBox, QProgressDialog
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtMultimedia import QMediaPlayer
 
 from Toolbar import Toolbar
@@ -23,11 +24,10 @@ class VideoEditorUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Video Editor Professional")
+        self.setWindowTitle("Video Editor Professional - Physical Splits")
         self.showMaximized()
 
         SPACING = 8
-
         main = QGridLayout(self)
         main.setSpacing(SPACING*2)
         main.setContentsMargins(SPACING, SPACING, SPACING, SPACING)
@@ -88,108 +88,161 @@ class VideoEditorUI(QWidget):
                 self._connected_timeline_player.pause()
         
         deleted = self.timeline_container.track_widget.delete_selected_clip()
-        
         if deleted:
             track_widget = self.timeline_container.track_widget
             content_end = track_widget.get_content_end_ms()
-            current_pos = self.timeline_container.time_slider.value()
-
-            if content_end == 0:
-                self.timeline_container.time_slider.setMaximum(100)
-                self.timeline_container.time_slider.setValue(0)
-                track_widget.set_playhead(0)
-                self._synchronize_preview_with_timeline(0)
-            else:
-                self.timeline_container.time_slider.setMaximum(content_end)
-                self._synchronize_preview_with_timeline(current_pos)
+            self.timeline_container.time_slider.setMaximum(max(content_end, 100))
+            self._synchronize_preview_with_timeline(self.timeline_container.time_slider.value())
 
     def _on_user_scroll_start(self):
         self.auto_scroll_active = False
-
-    def _create_track_file(self, source_path, duration_ms):
-        import time
-        import shutil
+    def _split_video_file(self, source_path, start_sec, end_sec, part_suffix):
         base_name = os.path.basename(source_path)
         name, ext = os.path.splitext(base_name)
-        unique_hash = hashlib.md5(f"{source_path}_{time.time()}".encode()).hexdigest()[:8]
-        new_filename = f"{name}_clip_{unique_hash}{ext}"
-        output_path = os.path.join(self.tracks_cache_dir, new_filename)
+        unique = hashlib.md5(f"{source_path}_{start_sec}_{end_sec}_{time.time()}".encode()).hexdigest()[:6]
         
-        duration_sec = duration_ms / 1000.0
+        out_name = f"{name}_{part_suffix}_{unique}{ext}"
+        out_path = os.path.join(self.tracks_cache_dir, out_name)
         
-        if ext.lower() in self.IMG_EXT:
-            shutil.copy2(source_path, output_path)
-            return output_path
+        duration = end_sec - start_sec
+        cmd = f'ffmpeg -y -ss {start_sec} -i "{source_path}" -t {duration} -c:v libx264 -preset ultrafast -c:a copy "{out_path}"'
         
-        cmd = f'ffmpeg -y -i "{source_path}" -t {duration_sec} "{output_path}"'
         try:
+            print(f"[FFMPEG] Processing split: {out_name}...")
             subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(output_path):
-                return output_path
-        except:
-            pass
+            if os.path.exists(out_path):
+                return out_path
+        except Exception as e:
+            print(f"[FFMPEG] Error: {e}")
             
-        shutil.copy2(source_path, output_path)
-        return output_path
+        return None
 
     def _on_place_clicked(self):
         current_list_widget = self.media_tabs.media_tabs.currentWidget()
         if not isinstance(current_list_widget, QListWidget): return
-
         selected_items = current_list_widget.selectedItems()
         if not selected_items: return
-            
-        item = selected_items[0]
-        file_path = item.data(Qt.UserRole)
         
-        if not file_path or not os.path.exists(file_path): return
+        item = selected_items[0]
+        insert_file_path = item.data(Qt.UserRole)
+        if not insert_file_path or not os.path.exists(insert_file_path): return
 
-        duration = 5000
-        if file_path.endswith(tuple(self.IMG_EXT)):
-            duration = 5000
+        # 2. Cat dureaza fisierul de inserat?
+        insert_duration_ms = 5000
+        if insert_file_path.endswith(tuple(self.IMG_EXT)):
+            insert_duration_ms = 5000
         else:
             try:
-                cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
+                cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{insert_file_path}"'
                 res = subprocess.check_output(cmd, shell=True)
-                duration = float(res) * 1000
+                insert_duration_ms = float(res) * 1000
             except:
-                duration = 5000 
+                insert_duration_ms = 5000
 
-        cached_path = self._create_track_file(file_path, duration)
-        
-        _, ext = os.path.splitext(cached_path)
-        ext = ext.lower()
-        color = "#3a6ea5" 
-        if ext in self.VID_EXT: color = "#800080" 
-        elif ext in self.AUD_EXT: color = "#FFA500" 
-        
         track_widget = self.timeline_container.track_widget
         playhead_pos = self.timeline_container.time_slider.value()
 
-        track_widget.trim_clip_at(playhead_pos)
-        track_widget.add_clip_at_pos(cached_path, playhead_pos, int(duration), color)
+        clip_under_cursor = track_widget.get_clip_at_ms(playhead_pos)
 
-        content_end = track_widget.get_content_end_ms()
-        slider_max = max(content_end, playhead_pos + int(duration) + 1000)
-        self.timeline_container.time_slider.setMaximum(slider_max)
-        
+        if not clip_under_cursor or clip_under_cursor.get('is_auto_gap', False):
+            track_widget.shift_clips_after(playhead_pos, insert_duration_ms)
+            self._add_single_clip_to_track(insert_file_path, playhead_pos, insert_duration_ms)
+
+        else:
+            original_path = clip_under_cursor['path']
+            original_start = clip_under_cursor['start']
+            original_dur = clip_under_cursor['duration']
+            split_point_local_ms = playhead_pos - original_start
+            
+
+            if split_point_local_ms < 100: 
+                 track_widget.shift_clips_after(original_start, insert_duration_ms)
+                 self._add_single_clip_to_track(insert_file_path, original_start, insert_duration_ms)
+                 self._refresh_slider()
+                 return
+                 
+            if abs(original_dur - split_point_local_ms) < 100:
+                 end_pos = original_start + original_dur
+                 track_widget.shift_clips_after(end_pos, insert_duration_ms)
+                 self._add_single_clip_to_track(insert_file_path, end_pos, insert_duration_ms)
+                 self._refresh_slider()
+                 return
+            
+            _, ext = os.path.splitext(original_path)
+            is_image = ext.lower() in self.IMG_EXT
+            
+            part1_path = None
+            part2_path = None
+            
+            if is_image:
+                print("[EDITOR] Splitting IMAGE (Virtual Split)...")
+                part1_path = original_path
+                part2_path = original_path
+            else:
+                print("[EDITOR] Splitting VIDEO/AUDIO (Physical Split)...")
+                split_sec = split_point_local_ms / 1000.0
+                total_sec = original_dur / 1000.0
+                
+                part1_path = self._split_video_file(original_path, 0, split_sec, "part1")
+                part2_path = self._split_video_file(original_path, split_sec, total_sec, "part2")
+                
+                if not part1_path or not part2_path:
+                    print("[EDITOR] Error creating split files via FFmpeg.")
+                    return
+            track_widget.remove_clip_by_path_and_start(original_path, original_start)
+            old_clip_end = original_start + original_dur
+            track_widget.shift_clips_after(old_clip_end, insert_duration_ms)
+            self._add_single_clip_to_track(part1_path, original_start, split_point_local_ms)
+            insert_pos = original_start + split_point_local_ms
+            self._add_single_clip_to_track(insert_file_path, insert_pos, insert_duration_ms)
+
+            part2_pos = insert_pos + insert_duration_ms
+            part2_dur = original_dur - split_point_local_ms
+            self._add_single_clip_to_track(part2_path, part2_pos, part2_dur)
+
+        self._refresh_slider()
+
         self._synchronize_preview_with_timeline(playhead_pos)
 
 
+    def _add_single_clip_to_track(self, path, start_ms, duration_ms):
+        _, ext = os.path.splitext(path)
+        ext = ext.lower()
+        color = "#3a6ea5"
+        if ext in self.VID_EXT: color = "#800080"
+        elif ext in self.AUD_EXT: color = "#FFA500"
+        
+        clip_data = {
+            'path': path,
+            'start': int(start_ms),
+            'duration': int(duration_ms),
+            'name': os.path.basename(path),
+            'color': color,
+            'is_auto_gap': False
+        }
+        self.timeline_container.track_widget.insert_clip_physically(clip_data)
+
+    def _refresh_slider(self):
+        track_widget = self.timeline_container.track_widget
+        content_end = track_widget.get_content_end_ms()
+        curr_val = self.timeline_container.time_slider.value()
+        new_max = max(content_end + 5000, curr_val + 5000)
+        self.timeline_container.time_slider.setMaximum(new_max)
+        track_widget.set_duration(new_max)
+
+
     def _synchronize_preview_with_timeline(self, global_ms):
+        global_ms = int(global_ms)
+        
         track_widget = self.timeline_container.track_widget
         clip_data = track_widget.get_clip_at_ms(global_ms)
         current_widget = self.video_preview.preview_tabs.widget(0)
-        
-        # State capture
         was_playing = False
         if self._connected_timeline_player:
             if self._connected_timeline_player.playbackState() == QMediaPlayer.PlayingState:
                 was_playing = True
-
         if clip_data is None:
             if isinstance(current_widget, VideoTabContent):
-
                 if "blackCat.jpg" in current_widget.file_path:
                     pass
                 else:
@@ -201,47 +254,73 @@ class VideoEditorUI(QWidget):
                     new_tab = self.video_preview.reset_timeline_to_black()
                     self._sync_timeline_connection(0)
             return
-
         file_path = clip_data['path']
-        clip_start = clip_data['start']
-        clip_duration = clip_data['duration']
+        clip_start = int(clip_data['start'])
+        clip_duration = int(clip_data['duration'])
+
         local_pos = global_ms - clip_start
-        
+        actual_file_pos = int(max(0, local_pos))         
         need_reload = True
         if isinstance(current_widget, VideoTabContent):
             if os.path.abspath(current_widget.file_path) == os.path.abspath(file_path):
                 need_reload = False
         
         if need_reload:
+
             if self._connected_timeline_player:
                 try:
                     self._connected_timeline_player.positionChanged.disconnect(self._update_timeline_ui)
                 except: pass
                 self._connected_timeline_player = None
-
             new_tab = self.video_preview.load_into_timeline_tab(file_path)
             self._sync_timeline_connection(0)
-            
+
             new_tab.set_explicit_duration(clip_duration)
             
-            current_widget = self.video_preview.preview_tabs.widget(0)
-            
             if new_tab.player:
-                new_tab.player.setPosition(local_pos)
+                new_tab.player.setPosition(actual_file_pos)
+
                 if was_playing:
-                    new_tab.player.play()
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, new_tab.player.play)
                 else:
                     new_tab.player.pause() 
         
         if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            if abs(current_widget.player.position() - local_pos) > 100:
-                current_widget.player.setPosition(local_pos)
+            if abs(current_widget.player.position() - actual_file_pos) > 150:
+                current_widget.player.setPosition(actual_file_pos)
+
+
+    def _on_media_status_changed_ui(self, status):
+        if status == QMediaPlayer.EndOfMedia:
+            print("[UI] EndOfMedia received. Forcing transition...")
+            
+            slider = self.timeline_container.time_slider
+            track_widget = self.timeline_container.track_widget
+            
+            current_pos = slider.value()
+            active_clip = track_widget.get_clip_at_ms(current_pos)
+            
+            if active_clip:
+                clip_end_time = int(active_clip['start'] + active_clip['duration'])
+                
+                next_pos = clip_end_time + 5
+                
+                slider.blockSignals(True)
+                slider.setValue(next_pos)
+                slider.blockSignals(False)
+                
+                track_widget.set_playhead(next_pos)
+                
+                self._synchronize_preview_with_timeline(next_pos)
+
 
     def _sync_timeline_connection(self, index):
         if self._connected_timeline_player:
             try:
                 self._connected_timeline_player.positionChanged.disconnect(self._update_timeline_ui)
                 self._connected_timeline_player.playbackStateChanged.disconnect(self._on_playback_state_changed)
+                self._connected_timeline_player.mediaStatusChanged.disconnect(self._on_media_status_changed_ui)
             except Exception:
                 pass
             self._connected_timeline_player = None
@@ -252,23 +331,29 @@ class VideoEditorUI(QWidget):
 
         if index == 0:
             slider.setEnabled(True)
-            
             if isinstance(current_widget, VideoTabContent) and current_widget.player:
                 self._connected_timeline_player = current_widget.player
+                
                 self._connected_timeline_player.positionChanged.connect(self._update_timeline_ui)
                 self._connected_timeline_player.playbackStateChanged.connect(self._on_playback_state_changed)
-
-            content_end = track_widget.get_content_end_ms()
-            current_max = slider.maximum()
-            slider.setMaximum(max(current_max, content_end, 100))
+                self._connected_timeline_player.mediaStatusChanged.connect(self._on_media_status_changed_ui)
+            
+            self._refresh_slider()
         else:
             slider.setEnabled(False)
+
+
 
     def _on_playback_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
             self.auto_scroll_active = True
 
+
     def _update_timeline_ui(self, ms):
+        ms = int(ms)
+        if self.timeline_container.time_slider.isSliderDown():
+            return
+
         slider = self.timeline_container.time_slider
         track_widget = self.timeline_container.track_widget
         
@@ -282,67 +367,55 @@ class VideoEditorUI(QWidget):
         if approx_global_pos >= content_end:
              if self._connected_timeline_player and self._connected_timeline_player.playbackState() == QMediaPlayer.PlayingState:
                   self._connected_timeline_player.pause()
-                  slider.setValue(content_end)
-                  track_widget.set_playhead(content_end)
                   return
-
         if active_clip and os.path.abspath(active_clip['path']) == os.path.abspath(current_widget.file_path):
-             global_pos = active_clip['start'] + ms
+             global_pos = int(active_clip['start'] + ms)
              
-             clip_end_time = active_clip['start'] + active_clip['duration']
-             if global_pos >= clip_end_time:
-                 next_pos = clip_end_time + 1 
+             clip_end_time = int(active_clip['start'] + active_clip['duration'])
+             if global_pos >= clip_end_time - 40: 
+                 print(f"[TRANSITION] Clip finished at {global_pos}. Jump to next.")
+                 next_pos = int(clip_end_time + 5)
+                 
                  slider.blockSignals(True)
                  slider.setValue(next_pos)
                  slider.blockSignals(False)
+                 
                  track_widget.set_playhead(next_pos)
                  self._synchronize_preview_with_timeline(next_pos)
              else:
                  slider.blockSignals(True)
                  slider.setValue(global_pos)
                  slider.blockSignals(False)
+                 
                  track_widget.set_playhead(global_pos)
+                 
                  if self.auto_scroll_active:
                     cursor_x = track_widget.ms_to_px(global_pos)
                     self.timeline_container.ensure_cursor_visible(cursor_x)
+
 
     def _on_slider_user_moved(self, val):
         if self.video_preview.preview_tabs.currentIndex() != 0: return 
         
         track_widget = self.timeline_container.track_widget
-        
-        if val >= self.timeline_container.time_slider.maximum() - 1000:
-             self.timeline_container.time_slider.setMaximum(val + 5000)
-
         if val < 0: val = 0 
         
-        if val != self.timeline_container.time_slider.value():
-            self.timeline_container.time_slider.setValue(val)
-
         track_widget.set_playhead(val)
         self.auto_scroll_active = True
         cursor_x = track_widget.ms_to_px(val)
         self.timeline_container.ensure_cursor_visible(cursor_x)
-        
         self._synchronize_preview_with_timeline(val)
 
     def _on_timeline_seek(self, ms):
         if self.video_preview.preview_tabs.currentIndex() != 0: return 
-        
-        track_widget = self.timeline_container.track_widget
-        
-        if ms >= self.timeline_container.time_slider.maximum() - 1000:
-             self.timeline_container.time_slider.setMaximum(ms + 5000)
-             
         if ms < 0: ms = 0 
         
         self.timeline_container.time_slider.setValue(ms)
-        track_widget.set_playhead(ms)
+        self.timeline_container.track_widget.set_playhead(ms)
         
         self.auto_scroll_active = True
-        cursor_x = track_widget.ms_to_px(ms)
+        cursor_x = self.timeline_container.track_widget.ms_to_px(ms)
         self.timeline_container.ensure_cursor_visible(cursor_x)
-        
         self._synchronize_preview_with_timeline(ms)
 
 if __name__ == "__main__":
