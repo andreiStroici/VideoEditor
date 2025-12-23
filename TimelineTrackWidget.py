@@ -6,6 +6,7 @@ import copy
 
 class TimelineTrackWidget(QWidget):
     seek_request = Signal(int)
+    mouse_pressed_signal = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -18,6 +19,7 @@ class TimelineTrackWidget(QWidget):
         
         self.selected_index = -1
         self._dragging_playhead = False
+        self.is_active_track = False
         
         # Culori standard
         self.COLOR_VIDEO = "#800080"
@@ -60,13 +62,16 @@ class TimelineTrackWidget(QWidget):
         self.playhead_pos_ms = 0
         self.update()
 
-    def _rebuild_track_with_gaps(self):
+    # //New Block
+    def _rebuild_track_with_gaps(self, force_duration_to=None):
+        # 1. Luam doar clipurile reale
         user_clips = [c for c in self.clips if not c.get('is_auto_gap', False)]
         user_clips.sort(key=lambda x: x['start'])
         
         new_clip_list = []
         current_time = 0
         
+        # 2. Umplem golurile dintre clipuri
         for clip in user_clips:
             if clip['start'] > current_time:
                 gap_duration = clip['start'] - current_time
@@ -84,13 +89,44 @@ class TimelineTrackWidget(QWidget):
             new_clip_list.append(clip)
             current_time = clip['start'] + clip['duration']
             
+        # 3. CRITIC: Umplem pana la capatul track-ului (Aliniere Track-uri)
+        # Daca ni s-a cerut o durata anume (cea a celui mai lung track), completam cu Gap.
+        if force_duration_to is not None:
+            if current_time < force_duration_to:
+                gap_duration = force_duration_to - current_time
+                if gap_duration > 0:
+                    final_gap = {
+                        'path': self.black_path,
+                        'start': current_time,
+                        'duration': gap_duration,
+                        'name': "Gap",
+                        'color': self.COLOR_GAP,
+                        'is_auto_gap': True
+                    }
+                    new_clip_list.append(final_gap)
+            
         self.clips = new_clip_list
+    # //End OF Block
+    
+    # //New Block
+    def set_duration_and_fill_gaps(self, max_ms):
+        """
+        Seteaza durata si umple cu gap-uri pana la acea durata.
+        """
+        self.duration_ms = max(max_ms, 60000)
+        # Apelam rebuild cu parametru pentru a forta gap-ul de final
+        self._rebuild_track_with_gaps(force_duration_to=max_ms)
+        self._update_dimensions()
+        self.update()
+    # //End OF Block
 
+    # //New Block
     def insert_clip_physically(self, clip_dict):
         self.clips.append(clip_dict)
-        self._rebuild_track_with_gaps()
+        # Reconstruim simplu, fara forta, VideoEditorUI va apela set_duration_and_fill mai tarziu
+        self._rebuild_track_with_gaps() 
         self.update()
-
+    
     def remove_clip_by_path_and_start(self, path, start_ms):
         for i, clip in enumerate(self.clips):
             if not clip.get('is_auto_gap', False):
@@ -163,7 +199,22 @@ class TimelineTrackWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         visible_rect = event.rect()
-        painter.fillRect(visible_rect, QColor("#f0f0f0"))
+        
+        # 1. Desenam fundalul (Albastru deschis daca e activ, Gri daca nu)
+        bg_color = QColor("#f0f0f0")
+        if self.is_active_track:
+            bg_color = QColor("#e6f3ff") 
+            
+        painter.fillRect(visible_rect, bg_color)
+        
+        # 2. Desenam contur albastru daca e activ
+        if self.is_active_track:
+            pen = QPen(QColor("#3a6ea5"), 2)
+            painter.setPen(pen)
+            painter.drawRect(visible_rect.adjusted(1,1,-1,-1))
+
+        # --- AICI INCEPE LOGICA VECHE DE DESENARE (Rigla, Clips, etc) ---
+        # (Am pastrat logica ta veche, doar am pus-o sub noul background)
         
         ruler_height = 30
         painter.fillRect(QRect(visible_rect.left(), 0, visible_rect.width(), ruler_height), QColor("#e0e0e0"))
@@ -185,23 +236,17 @@ class TimelineTrackWidget(QWidget):
             x_half = self.ms_to_px(sec * 1000 + 500)
             painter.drawLine(x_half, 22, x_half, 30)
 
-        # Track Background
         track_y = 40
         track_height = 60
         painter.fillRect(QRect(visible_rect.left(), track_y, visible_rect.width(), track_height), QColor("#ffffff"))
 
-        # Clips
         for i, clip in enumerate(self.clips):
             x_start = self.ms_to_px(clip['start'])
             w_clip = self.ms_to_px(clip['duration'])
-            
-            # Skip daca nu e vizibil
             if x_start + w_clip < visible_rect.left() or x_start > visible_rect.right():
                 continue
-
             clip_rect = QRect(x_start, track_y + 2, w_clip, track_height - 4)
             painter.fillRect(clip_rect, QColor(clip.get('color', '#3a6ea5')))
-
             is_gap = clip.get('is_auto_gap', False)
             if i == self.selected_index and not is_gap:
                 painter.setPen(QPen(QColor("yellow"), 3))
@@ -211,7 +256,6 @@ class TimelineTrackWidget(QWidget):
                 painter.drawRect(clip_rect)
                 painter.drawText(clip_rect, Qt.AlignCenter, clip['name'])
 
-        # Playhead
         ph_x = self.ms_to_px(self.playhead_pos_ms)
         if visible_rect.left() - 10 <= ph_x <= visible_rect.right() + 10:
             painter.setPen(QPen(QColor("#ff0000"), 2))
@@ -219,7 +263,12 @@ class TimelineTrackWidget(QWidget):
             painter.setBrush(QColor("#ff0000"))
             painter.drawPolygon([QPoint(ph_x - 6, 0), QPoint(ph_x + 6, 0), QPoint(ph_x, 15)])
 
+
     def mousePressEvent(self, event):
+        # Anuntam parintele (TimelineAndTracks) ca userul a dat click pe acest track
+        self.mouse_pressed_signal.emit() 
+        
+        # --- LOGICA VECHE DE SELECTIE ---
         if event.button() == Qt.LeftButton:
             x = event.x()
             y = event.y()
@@ -231,7 +280,6 @@ class TimelineTrackWidget(QWidget):
 
             self._dragging_playhead = False
             
-            # Logică selecție
             track_y_start = 40
             track_y_end = 100
             clicked_clip = False

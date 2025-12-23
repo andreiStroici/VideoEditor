@@ -4,7 +4,7 @@ import hashlib
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTabWidget, QTabBar, QSizePolicy
 )
-from PySide6.QtCore import Qt, QUrl, QSize
+from PySide6.QtCore import Qt, QUrl, QSize, Signal
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtGui import QPixmap, QResizeEvent, QShowEvent, QIcon
@@ -13,6 +13,9 @@ from VideoPreviewButtons import VideoPreviewButtons
 from VideoTabContent import VideoTabContent
 
 class VideoPreview(QWidget):
+    # actiuni: 'start', 'end', 'step', 'speed', 'toggle_play'
+    timeline_action = Signal(str, float)
+
     def __init__(self, SPACING, parent=None):
         super().__init__(parent)
        
@@ -52,25 +55,38 @@ class VideoPreview(QWidget):
         self._on_tab_changed(0)
 
     def _on_change_speed_directional(self, direction):
-        current_widget = self.preview_tabs.currentWidget()
-        if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            current_widget.change_speed_mode(direction)
-            self._update_play_button_icon(current_widget.player.playbackState())
+        if self.preview_tabs.currentIndex() == 0:
+            val = 1.0 if direction == "forward" else -1.0
+            self.timeline_action.emit('speed', val)
+        else:
+            current_widget = self.preview_tabs.currentWidget()
+            if isinstance(current_widget, VideoTabContent) and current_widget.player:
+                current_widget.change_speed_mode(direction)
+                self._update_play_button_icon(current_widget.player.playbackState())
     
     def _on_go_to_start(self):
-        current_widget = self.preview_tabs.currentWidget()
-        if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            current_widget.go_to_start()
+        if self.preview_tabs.currentIndex() == 0:
+            self.timeline_action.emit('start', 0)
+        else:
+            current_widget = self.preview_tabs.currentWidget()
+            if isinstance(current_widget, VideoTabContent) and current_widget.player:
+                current_widget.go_to_start()
 
     def _on_go_to_end(self):
-        current_widget = self.preview_tabs.currentWidget()
-        if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            current_widget.go_to_end()
+        if self.preview_tabs.currentIndex() == 0:
+            self.timeline_action.emit('end', 0)
+        else:
+            current_widget = self.preview_tabs.currentWidget()
+            if isinstance(current_widget, VideoTabContent) and current_widget.player:
+                current_widget.go_to_end()
 
     def _step_video(self, direction):
-        current_widget = self.preview_tabs.currentWidget()
-        if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            current_widget.step_frame(direction)
+        if self.preview_tabs.currentIndex() == 0:
+            self.timeline_action.emit('step', float(direction))
+        else:
+            current_widget = self.preview_tabs.currentWidget()
+            if isinstance(current_widget, VideoTabContent) and current_widget.player:
+                current_widget.step_frame(direction)
 
     def add_media_tab(self, file_path):
         target_path = os.path.abspath(file_path)
@@ -98,33 +114,30 @@ class VideoPreview(QWidget):
         controls_enabled = False
         
         if isinstance(current_widget, VideoTabContent):
-            if current_widget.player is not None:
+            if current_widget.player is not None or index == 0:
                 controls_enabled = True
-                
-                if "black.jpg" in current_widget.file_path:
-                    controls_enabled = False
                 
                 if controls_enabled:
                     self._current_connected_tab = current_widget
                     current_widget.player_state_changed.connect(self._update_play_button_icon)
-                    self._update_play_button_icon(current_widget.player.playbackState())
+                    if index != 0 and current_widget.player:
+                        self._update_play_button_icon(current_widget.player.playbackState())
         
         self.buttons.setEnabled(controls_enabled)
         opacity = 1.0 if controls_enabled else 0.3
         self.buttons.setWindowOpacity(opacity) 
 
     def _toggle_play_active_tab(self):
-        current_widget = self.preview_tabs.currentWidget()
-        if isinstance(current_widget, VideoTabContent) and current_widget.player:
-            current_widget.toggle_play_safe()
+        if self.preview_tabs.currentIndex() == 0:
+            self.timeline_action.emit('toggle_play', 0)
+        else:
+            current_widget = self.preview_tabs.currentWidget()
+            if isinstance(current_widget, VideoTabContent) and current_widget.player:
+                current_widget.toggle_play_safe()
             
     def _update_play_button_icon(self, state):
         play_btn = self.buttons.play_pause_button
-        current_widget = self.preview_tabs.currentWidget()
-        is_reversing = False
-        if isinstance(current_widget, VideoTabContent):
-            is_reversing = current_widget.is_reversing()
-        if state == QMediaPlayer.PlayingState or is_reversing:
+        if state == QMediaPlayer.PlayingState:
             play_btn.setIcon(QIcon(play_btn.pause_icon_path))
         else:
             play_btn.setIcon(QIcon(play_btn.play_icon_path))
@@ -142,33 +155,23 @@ class VideoPreview(QWidget):
             old_widget.cleanup()
         
         self.preview_tabs.removeTab(0)
-        
         new_content = VideoTabContent(file_path, is_timeline=True)
-        
         self.preview_tabs.insertTab(0, new_content, "Timeline")
         self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
-        
         self.main_timeline_tab = new_content 
         self.preview_tabs.setCurrentIndex(0)
-        
         return new_content
-
 
     def reset_timeline_to_black(self):
         old_widget = self.preview_tabs.widget(0)
         if isinstance(old_widget, VideoTabContent):
             old_widget.cleanup()
-        
         self.preview_tabs.removeTab(0)
-        
         base_dir = os.path.dirname(os.path.abspath(__file__))
         timeline_image_path = os.path.join(base_dir, "icons", "black.jpg")
-
         new_content = VideoTabContent(timeline_image_path, is_timeline=True)
-        
         self.preview_tabs.insertTab(0, new_content, "Timeline")
         self.preview_tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
         self.preview_tabs.setCurrentIndex(0)
-        
         self.main_timeline_tab = new_content
         return new_content
