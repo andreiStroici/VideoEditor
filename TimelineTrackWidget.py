@@ -2,6 +2,8 @@ import copy
 import json
 import time
 import os
+import subprocess
+import uuid
 from PySide6.QtWidgets import QWidget, QApplication, QScrollArea
 from PySide6.QtCore import Qt, Signal, QRect, QPoint, QSize, QMimeData, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QDrag, QPixmap, QCursor
@@ -12,6 +14,7 @@ class TimelineTrackWidget(QWidget):
     scroll_request = Signal(int, int)
     track_changed = Signal() 
     request_overlap_insertion = Signal(dict, int) 
+    zoom_request_signal = Signal(int, int) 
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -34,6 +37,8 @@ class TimelineTrackWidget(QWidget):
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.black_path = os.path.join(base_dir, "icons", "blackCat.jpg")
+        self.files_cache_dir = os.path.join(base_dir, "filesFromTracks")
+        os.makedirs(self.files_cache_dir, exist_ok=True)
 
         self._drag_start_pos = QPoint()
         self.ghost_clip = None 
@@ -58,6 +63,11 @@ class TimelineTrackWidget(QWidget):
     def resizeEvent(self, event):
         self._update_dimensions()
         super().resizeEvent(event)
+
+    def set_scale(self, new_pixels_per_second):
+        self.pixels_per_second = new_pixels_per_second
+        self._update_dimensions()
+        self.update()
 
     def set_duration(self, ms):
         self.duration_ms = max(0, ms)
@@ -364,7 +374,7 @@ class TimelineTrackWidget(QWidget):
         self.ghost_clip = None
         self.current_drag_clip_info = None
         self.last_drag_global_pos = None
-        self.current_snap_x = None # Reset snap visual
+        self.current_snap_x = None 
         self._scroll_direction_x = 0
         self._scroll_direction_y = 0
         self._auto_scroll_timer.stop()
@@ -560,36 +570,87 @@ class TimelineTrackWidget(QWidget):
     def split_clip_at_playhead(self):
         target_clip_index = -1
         target_clip = None
-        for i, clip in enumerate(self.clips):
-            if clip.get('is_auto_gap', False): continue
-            start = clip['start']
-            end = start + clip['duration']
-            if start < self.playhead_pos_ms < end:
-                target_clip_index = i
-                target_clip = clip
-                break
-        
+        if self.selected_index != -1 and self.selected_index < len(self.clips):
+            candidate = self.clips[self.selected_index]
+            if not candidate.get('is_auto_gap', False):
+                start = candidate['start']
+                end = start + candidate['duration']
+                if start < self.playhead_pos_ms < end:
+                    target_clip_index = self.selected_index
+                    target_clip = candidate
         if target_clip is None:
-            return False 
-            
+            return False
         split_point_global = self.playhead_pos_ms
-        split_point_local = split_point_global - target_clip['start']
+        split_point_local_ms = split_point_global - target_clip['start']
+        split_point_sec = split_point_local_ms / 1000.0
         
+        original_path = target_clip['path']
         original_duration = target_clip['duration']
-        first_part_duration = split_point_local
-        second_part_duration = original_duration - split_point_local
-        
-        if first_part_duration < 100 or second_part_duration < 100:
-            return False 
+        is_image = original_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))
+        if is_image:
+
+            part1 = target_clip.copy()
+            part1['duration'] = split_point_local_ms
+
+            part2 = target_clip.copy()
+            part2['start'] = split_point_global
+            part2['duration'] = original_duration - split_point_local_ms
+            part2['name'] = part2['name'] + "_p2"
+
+            del self.clips[target_clip_index]
+            self.clips.insert(target_clip_index, part1)
+            self.clips.insert(target_clip_index + 1, part2)
             
-        target_clip['duration'] = first_part_duration
-        
-        new_clip = target_clip.copy()
-        new_clip['start'] = split_point_global
-        new_clip['duration'] = second_part_duration
-        
-        self.clips.insert(target_clip_index + 1, new_clip)
-        
+        else:
+            unique_id = str(uuid.uuid4())[:8]
+            base_name = os.path.splitext(os.path.basename(original_path))[0]
+            ext = os.path.splitext(original_path)[1]
+            
+            part1_filename = f"{base_name}_part1_{unique_id}{ext}"
+            part2_filename = f"{base_name}_part2_{unique_id}{ext}"
+            
+            part1_path = os.path.join(self.files_cache_dir, part1_filename)
+            part2_path = os.path.join(self.files_cache_dir, part2_filename)
+            cmd1 = [
+                'ffmpeg', '-y', 
+                '-ss', '0', 
+                '-i', original_path, 
+                '-t', str(split_point_sec), 
+                '-c', 'copy', 
+                '-avoid_negative_ts', 'make_zero',
+                part1_path
+            ]
+
+            cmd2 = [
+                'ffmpeg', '-y', 
+                '-ss', str(split_point_sec), 
+                '-i', original_path, 
+                '-c', 'copy', 
+                '-avoid_negative_ts', 'make_zero',
+                part2_path
+            ]
+            try:
+                subprocess.run(cmd1, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(cmd2, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                part1 = target_clip.copy()
+                part1['path'] = part1_path
+                part1['duration'] = split_point_local_ms 
+                
+                part2 = target_clip.copy()
+                part2['path'] = part2_path
+                part2['start'] = split_point_global
+                part2['duration'] = original_duration - split_point_local_ms
+                part2['name'] = base_name + "_p2"
+                
+                del self.clips[target_clip_index]
+                self.clips.insert(target_clip_index, part1)
+                self.clips.insert(target_clip_index + 1, part2)
+                
+            except Exception as e:
+                print(f"Error splitting file: {e}")
+                return False
+
+        self.selected_index = -1 
         self._rebuild_track_with_gaps()
         self.track_changed.emit()
         self.update()
@@ -681,9 +742,3 @@ class TimelineTrackWidget(QWidget):
         if self.selected_index != -1:
             self.selected_index = -1
             self.update()
-
-    def set_scale(self, new_pixels_per_second):
-        """Metoda apelata de TimelineAndTracks pentru a schimba zoom-ul"""
-        self.pixels_per_second = new_pixels_per_second
-        self._update_dimensions()
-        self.update()
