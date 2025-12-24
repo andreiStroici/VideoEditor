@@ -297,16 +297,26 @@ class VideoEditorUI(QWidget):
                     if clip and not clip.get('is_auto_gap', False):
                         active_clip = clip
                         break
-                
                 if active_clip:
                     clip_end_time = int(active_clip['start'] + active_clip['duration'])
                     if abs(current_pos - clip_end_time) < 300:
-                        next_pos = clip_end_time + 5
+                        next_pos = clip_end_time + 5 # +5ms sa treaca granita
                         slider.blockSignals(True)
                         slider.setValue(next_pos)
                         slider.blockSignals(False)
                         self.timeline_container.set_global_playhead(next_pos)
                         self._synchronize_preview_with_timeline(next_pos)
+                else:
+                    next_pos = current_pos + 33 # +1 frame
+                    if next_pos < slider.maximum():
+                        slider.blockSignals(True)
+                        slider.setValue(next_pos)
+                        slider.blockSignals(False)
+                        self.timeline_container.set_global_playhead(next_pos)
+                        self._synchronize_preview_with_timeline(next_pos)
+                    else:
+                        self.global_playing_state = False
+                        self._apply_global_state_to_preview()
 
     def _sync_timeline_connection(self, index):
         if self._connected_timeline_player:
@@ -394,6 +404,29 @@ class VideoEditorUI(QWidget):
         
         should_mute = (self.global_playback_speed < 0) or (not self.global_playing_state)
 
+
+        if isinstance(current_widget.player, ImagePlayer) and self.global_playing_state:
+            dur = current_widget.player.duration()
+            pos = current_widget.player.position()
+            
+            threshold = 40 * abs(self.global_playback_speed)
+            if threshold < 40: threshold = 40
+
+            if pos >= dur - threshold:
+                jump_to = 0
+                if target_clip:
+                    jump_to = target_clip['start'] + target_clip['duration'] + 5
+                else:
+                    remaining = dur - pos
+                    jump_to = slider.value() + remaining + 50 
+
+                slider.blockSignals(True)
+                slider.setValue(jump_to)
+                slider.blockSignals(False)
+                self.timeline_container.set_global_playhead(jump_to)
+                self._synchronize_preview_with_timeline(jump_to)
+                return
+
         if target_clip:
             if os.path.abspath(target_clip['path']) == current_path:
                 expected_local_time = approx_global_pos - target_clip['start']
@@ -412,15 +445,14 @@ class VideoEditorUI(QWidget):
                     
                     self._update_audio_mixer(global_pos, was_playing=self.global_playing_state, mute=should_mute)
                     return 
-
         if not player_is_correct:
             if target_clip:
                 self._synchronize_preview_with_timeline(approx_global_pos)
             elif "blackCat.jpg" in current_path:
-                step = 33
-                if self.global_playback_speed < 0: step = -33
-                
-                next_val = slider.value() + step
+                base_step = 33
+                speed_factor = self.global_playback_speed
+                step = base_step * speed_factor
+                next_val = slider.value() + int(step)
                 upcoming_clip = None
                 for track in self.timeline_container.track_widgets:
                     c = track.get_clip_at_ms(next_val)
