@@ -137,7 +137,14 @@ class VideoPreview(QWidget):
             
     def _update_play_button_icon(self, state):
         play_btn = self.buttons.play_pause_button
-        if state == QMediaPlayer.PlayingState:
+        is_visually_playing = (state == QMediaPlayer.PlayingState)
+
+        if self._current_connected_tab:
+            if hasattr(self._current_connected_tab, "is_reversing"):
+                if self._current_connected_tab.is_reversing():
+                    is_visually_playing = True
+
+        if is_visually_playing:
             play_btn.setIcon(QIcon(play_btn.pause_icon_path))
         else:
             play_btn.setIcon(QIcon(play_btn.play_icon_path))

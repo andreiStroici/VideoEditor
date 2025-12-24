@@ -1,18 +1,24 @@
-from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Qt, Signal, QRect, QPoint, QSize
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont
-import os 
 import copy
+import json
+import time
+import os
+from PySide6.QtWidgets import QWidget, QApplication, QScrollArea
+from PySide6.QtCore import Qt, Signal, QRect, QPoint, QSize, QMimeData, QTimer
+from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QDrag, QPixmap, QCursor
 
 class TimelineTrackWidget(QWidget):
     seek_request = Signal(int)
     mouse_pressed_signal = Signal()
+    scroll_request = Signal(int, int)
+    track_changed = Signal() 
+    request_overlap_insertion = Signal(dict, int) 
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background-color: #f0f0f0;") 
+        self.setAcceptDrops(True)
+        self.duration_ms = 0
         
-        self.duration_ms = 60000 
         self.playhead_pos_ms = 0
         self.pixels_per_second = 50 
         self.clips = []
@@ -21,7 +27,6 @@ class TimelineTrackWidget(QWidget):
         self._dragging_playhead = False
         self.is_active_track = False
         
-        # Culori standard
         self.COLOR_VIDEO = "#800080"
         self.COLOR_AUDIO = "#FFA500"
         self.COLOR_IMAGE = "#3a6ea5"
@@ -30,14 +35,31 @@ class TimelineTrackWidget(QWidget):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.black_path = os.path.join(base_dir, "icons", "blackCat.jpg")
 
+        self._drag_start_pos = QPoint()
+        self.ghost_clip = None 
+        self.current_drag_clip_info = None 
+        self.last_drag_global_pos = None 
+
+        self._auto_scroll_timer = QTimer(self)
+        self._auto_scroll_timer.setInterval(50) 
+        self._auto_scroll_timer.timeout.connect(self._on_auto_scroll_tick)
+        self._scroll_direction_x = 0
+        self._scroll_direction_y = 0 
+        self.last_expand_time = 0.0
+
         self._update_dimensions()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._rebuild_track_with_gaps(force_duration_to=self.duration_ms)
+        self.update()
 
     def resizeEvent(self, event):
         self._update_dimensions()
         super().resizeEvent(event)
 
     def set_duration(self, ms):
-        self.duration_ms = max(ms, 60000)
+        self.duration_ms = max(0, ms)
         self._update_dimensions() 
         self.update()
 
@@ -61,7 +83,7 @@ class TimelineTrackWidget(QWidget):
         self.selected_index = -1
         self.playhead_pos_ms = 0
         self.update()
-
+        self.track_changed.emit()
 
     def _rebuild_track_with_gaps(self, force_duration_to=None):
         user_clips = [c for c in self.clips if not c.get('is_auto_gap', False)]
@@ -87,56 +109,57 @@ class TimelineTrackWidget(QWidget):
             new_clip_list.append(clip)
             current_time = clip['start'] + clip['duration']
 
+        content_end = current_time
+        final_duration = content_end
+        
         if force_duration_to is not None:
-            if current_time < force_duration_to:
-                gap_duration = force_duration_to - current_time
-                if gap_duration > 0:
-                    final_gap = {
-                        'path': self.black_path,
-                        'start': current_time,
-                        'duration': gap_duration,
-                        'name': "Gap",
-                        'color': self.COLOR_GAP,
-                        'is_auto_gap': True
-                    }
-                    new_clip_list.append(final_gap)
-            
+            final_duration = max(content_end, force_duration_to)
+
+        if final_duration > 0 and current_time < final_duration:
+            gap_duration = final_duration - current_time
+            if gap_duration > 0:
+                final_gap = {
+                    'path': self.black_path,
+                    'start': current_time,
+                    'duration': gap_duration,
+                    'name': "Gap",
+                    'color': self.COLOR_GAP,
+                    'is_auto_gap': True
+                }
+                new_clip_list.append(final_gap)
+        
         self.clips = new_clip_list
+        self.duration_ms = final_duration
+        self._update_dimensions()
 
     def set_duration_and_fill_gaps(self, max_ms):
-        """
-        Seteaza durata si umple cu gap-uri pana la acea durata.
-        """
-        self.duration_ms = max(max_ms, 60000)
         self._rebuild_track_with_gaps(force_duration_to=max_ms)
-        self._update_dimensions()
         self.update()
 
     def insert_clip_physically(self, clip_dict):
         self.clips.append(clip_dict)
-
         self._rebuild_track_with_gaps() 
         self.update()
+        self.track_changed.emit()
     
     def remove_clip_by_path_and_start(self, path, start_ms):
         for i, clip in enumerate(self.clips):
             if not clip.get('is_auto_gap', False):
                 if clip['path'] == path and abs(clip['start'] - start_ms) < 50:
                     del self.clips[i]
+                    self.track_changed.emit()
                     return True
         return False
 
     def shift_clips_after(self, threshold_ms, shift_amount_ms):
         if shift_amount_ms <= 0: return
-
         for clip in self.clips:
             if not clip.get('is_auto_gap', False):
                 if clip['start'] >= threshold_ms:
                     clip['start'] += shift_amount_ms
-        
         self._rebuild_track_with_gaps()
         self.update()
-
+        self.track_changed.emit()
 
     def add_clip_at_pos(self, file_path, start_pos, duration_ms, color):
         name = os.path.basename(file_path)
@@ -151,6 +174,7 @@ class TimelineTrackWidget(QWidget):
         self.clips.append(new_clip)
         self._rebuild_track_with_gaps()
         self.update()
+        self.track_changed.emit()
 
     def delete_selected_clip(self):
         if self.selected_index != -1 and 0 <= self.selected_index < len(self.clips):
@@ -160,6 +184,7 @@ class TimelineTrackWidget(QWidget):
             self.selected_index = -1 
             self._rebuild_track_with_gaps()
             self.update()
+            self.track_changed.emit()
             return True
         return False
 
@@ -172,11 +197,11 @@ class TimelineTrackWidget(QWidget):
         return None
 
     def get_content_end_ms(self):
-        if not self.clips: return 0
         max_end = 0
         for clip in self.clips:
-            end = clip['start'] + clip['duration']
-            if end > max_end: max_end = end
+            if not clip.get('is_auto_gap', False):
+                end = clip['start'] + clip['duration']
+                if end > max_end: max_end = end
         return max_end
 
     def ms_to_px(self, ms):
@@ -185,13 +210,354 @@ class TimelineTrackWidget(QWidget):
     def px_to_ms(self, px):
         return int((px / self.pixels_per_second) * 1000)
 
+    def delete_clip_by_index(self, idx):
+        if 0 <= idx < len(self.clips):
+            del self.clips[idx]
+            self._rebuild_track_with_gaps()
+            self.update()
+            self.track_changed.emit()
+
+    def _find_scroll_area(self):
+        p = self.parentWidget()
+        while p:
+            if isinstance(p, QScrollArea):
+                return p
+            p = p.parentWidget()
+        return None
+
+    def is_overlapping(self, start_ms, duration_ms, excluded_index=-1):
+        end_ms = start_ms + duration_ms
+        
+        for i, clip in enumerate(self.clips):
+            if i == excluded_index:
+                continue
+                
+            if clip.get('is_auto_gap', False):
+                continue
+            
+            c_start = clip['start']
+            c_end = c_start + clip['duration']
+            
+            if start_ms < c_end and end_ms > c_start:
+                return True
+        return False
+
+    def mousePressEvent(self, event):
+        self.mouse_pressed_signal.emit() 
+        if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.pos() 
+            x = event.x()
+            y = event.y()
+            ms = self.px_to_ms(x)
+
+            if abs(x - self.ms_to_px(self.playhead_pos_ms)) <= 10:
+                self._dragging_playhead = True
+                return 
+
+            self._dragging_playhead = False
+            
+            track_y_start = 40
+            track_y_end = 100
+            clicked_clip_idx = -1
+            
+            if track_y_start <= y <= track_y_end:
+                for i in range(len(self.clips)-1, -1, -1):
+                    c = self.clips[i]
+                    if not c.get('is_auto_gap', False):
+                        c_start = self.ms_to_px(c['start'])
+                        c_w = self.ms_to_px(c['duration'])
+                        if c_start <= x <= c_start + c_w:
+                            clicked_clip_idx = i
+                            break
+            
+            if clicked_clip_idx != -1:
+                self.selected_index = clicked_clip_idx
+            else:
+                self.selected_index = -1
+                self.set_playhead(ms)
+                self.seek_request.emit(ms)
+            
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton and self._dragging_playhead:
+            ms = max(0, self.px_to_ms(event.x()))
+            self.playhead_pos_ms = ms
+            self.seek_request.emit(ms)
+            self.update()
+            return
+
+        if event.buttons() & Qt.LeftButton and self.selected_index != -1:
+            dist = (event.pos() - self._drag_start_pos).manhattanLength()
+            if dist > QApplication.startDragDistance():
+                self._start_clip_drag(self.selected_index)
+
+    def mouseReleaseEvent(self, event):
+        self._dragging_playhead = False
+        super().mouseReleaseEvent(event)
+
+    def _start_clip_drag(self, clip_idx):
+        clip = self.clips[clip_idx]
+        if clip.get('is_auto_gap', False): return
+
+        click_x_px = self._drag_start_pos.x()
+        click_time_ms = self.px_to_ms(click_x_px)
+        offset_ms = click_time_ms - clip['start']
+
+        mime_data = QMimeData()
+        clip_data_full = {
+            'clip': clip,
+            'origin_index': clip_idx,
+            'offset_ms': offset_ms 
+        }
+        mime_data.setData("application/x-vem-clip", json.dumps(clip_data_full).encode())
+
+        clip_w = self.ms_to_px(clip['duration'])
+        clip_h = 60
+        pixmap = QPixmap(clip_w, clip_h)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setOpacity(0.5) 
+        painter.fillRect(pixmap.rect(), QColor(clip['color']))
+        painter.setPen(Qt.white)
+        painter.drawRect(0, 0, clip_w-1, clip_h-1)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, clip['name'])
+        painter.end()
+
+        drag = QDrag(self)
+        drag.setMimeData(mime_data)
+        drag.setPixmap(pixmap)
+        offset_px = self.ms_to_px(offset_ms)
+        drag.setHotSpot(QPoint(offset_px, clip_h // 2))
+
+        action = drag.exec_(Qt.MoveAction)
+
+        self.ghost_clip = None
+        self.current_drag_clip_info = None
+        self.last_drag_global_pos = None
+        self._scroll_direction_x = 0
+        self._scroll_direction_y = 0
+        self._auto_scroll_timer.stop()
+        self.update()
+        self._rebuild_track_with_gaps()
+        self.update()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-vem-clip"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def _on_auto_scroll_tick(self):
+        if self._scroll_direction_x != 0 or self._scroll_direction_y != 0:
+            self.scroll_request.emit(self._scroll_direction_x, self._scroll_direction_y)
+            
+            if self._scroll_direction_x == 1:
+                current_time = time.time()
+                if current_time - self.last_expand_time > 0.5:
+                    visible_rect = self.visibleRegion().boundingRect()
+                    if visible_rect.right() > self.width() - 100:
+                        new_dur = self.duration_ms + 5000
+                        self.set_duration(new_dur)
+                        self.last_expand_time = current_time 
+            
+            if self.current_drag_clip_info and self.last_drag_global_pos:
+                local_pos = self.mapFromGlobal(self.last_drag_global_pos)
+                x = local_pos.x()
+                drop_ms = self.px_to_ms(x)
+                
+                offset = self.current_drag_clip_info.get('offset_ms', self.current_drag_clip_info['duration'] / 2)
+                new_start = max(0, int(drop_ms - offset))
+
+                self.ghost_clip = {
+                    'start': new_start,
+                    'duration': self.current_drag_clip_info['duration'],
+                    'color': self.current_drag_clip_info['color'],
+                    'name': self.current_drag_clip_info['name']
+                }
+                self.update()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-vem-clip"):
+            event.acceptProposedAction()
+            
+            local_pos_f = event.position()
+            local_pos = local_pos_f.toPoint()
+            x = local_pos.x()
+            
+            self.last_drag_global_pos = self.mapToGlobal(local_pos)
+            
+            try:
+                data = event.mimeData().data("application/x-vem-clip")
+                data_dict = json.loads(data.data().decode())
+                clip_dict = data_dict['clip']
+                self.current_drag_clip_info = clip_dict
+                
+                drop_ms = self.px_to_ms(x)
+                
+                if 'offset_ms' in data_dict:
+                    offset = data_dict['offset_ms']
+                else:
+                    offset = clip_dict['duration'] / 2
+
+                new_start = max(0, int(drop_ms - offset))
+                
+                self.ghost_clip = {
+                    'start': new_start,
+                    'duration': clip_dict['duration'],
+                    'color': clip_dict['color'],
+                    'name': clip_dict['name']
+                }
+                self.update() 
+            except Exception as e:
+                pass
+
+            scroll_area = self._find_scroll_area()
+            visible_rect = self.visibleRegion().boundingRect()
+            vis_left = visible_rect.left()
+            vis_right = visible_rect.right()
+            scroll_margin = 60 
+            
+            if x < vis_left + scroll_margin:
+                self._scroll_direction_x = -1
+            elif x > vis_right - scroll_margin:
+                self._scroll_direction_x = 1
+            else:
+                self._scroll_direction_x = 0
+
+            self._scroll_direction_y = 0
+            if scroll_area:
+                pos_in_sa = scroll_area.viewport().mapFromGlobal(self.last_drag_global_pos)
+                sa_height = scroll_area.viewport().height()
+                vertical_margin = 40 
+                if pos_in_sa.y() < vertical_margin:
+                     self._scroll_direction_y = -1 
+                elif pos_in_sa.y() > sa_height - vertical_margin:
+                     self._scroll_direction_y = 1  
+
+            if self._scroll_direction_x != 0 or self._scroll_direction_y != 0:
+                if not self._auto_scroll_timer.isActive():
+                    self._auto_scroll_timer.start()
+            else:
+                if self._auto_scroll_timer.isActive():
+                    self._auto_scroll_timer.stop()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.ghost_clip = None
+        self.current_drag_clip_info = None
+        self.last_drag_global_pos = None
+        self._scroll_direction_x = 0
+        self._scroll_direction_y = 0 
+        self._auto_scroll_timer.stop()
+        self.update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self.ghost_clip = None
+        self.current_drag_clip_info = None
+        self.last_drag_global_pos = None
+        self._scroll_direction_x = 0
+        self._scroll_direction_y = 0 
+        self._auto_scroll_timer.stop()
+        
+        if event.mimeData().hasFormat("application/x-vem-clip"):
+            data = event.mimeData().data("application/x-vem-clip")
+            data_dict = json.loads(data.data().decode())
+            clip_dict = data_dict['clip']
+            
+            drop_x = event.pos().x()
+            drop_ms = self.px_to_ms(drop_x)
+
+            if 'offset_ms' in data_dict:
+                offset = data_dict['offset_ms']
+            else:
+                offset = clip_dict['duration'] / 2
+
+            new_start = max(0, int(drop_ms - offset))
+            
+            source = event.source()
+            
+            exclude_index = -1
+            if source == self:
+                exclude_index = data_dict['origin_index']
+
+            if self.is_overlapping(new_start, clip_dict['duration'], excluded_index=exclude_index):
+                clip_dict['start'] = new_start
+                if source == self:
+                    self.delete_clip_by_index(data_dict['origin_index'])
+                elif isinstance(source, TimelineTrackWidget):
+                    source.delete_clip_by_index(data_dict['origin_index'])
+                
+                self.request_overlap_insertion.emit(clip_dict, new_start)
+                event.accept()
+                return
+
+            clip_dict['start'] = new_start
+            
+            if source != self and isinstance(source, TimelineTrackWidget):
+                source.delete_clip_by_index(data_dict['origin_index'])
+            elif source == self:
+                orig_idx = data_dict['origin_index']
+                if 0 <= orig_idx < len(self.clips):
+                     del self.clips[orig_idx]
+            
+            self.clips.append(clip_dict)
+            
+            event.setDropAction(Qt.MoveAction)
+            event.accept()
+            
+            self._rebuild_track_with_gaps()
+            self.track_changed.emit()
+            self.update()
+        else:
+            event.ignore()
+
+    def split_clip_at_playhead(self):
+        target_clip_index = -1
+        target_clip = None
+        for i, clip in enumerate(self.clips):
+            if clip.get('is_auto_gap', False): continue
+            start = clip['start']
+            end = start + clip['duration']
+            if start < self.playhead_pos_ms < end:
+                target_clip_index = i
+                target_clip = clip
+                break
+        
+        if target_clip is None:
+            return False 
+            
+        split_point_global = self.playhead_pos_ms
+        split_point_local = split_point_global - target_clip['start']
+        
+        original_duration = target_clip['duration']
+        first_part_duration = split_point_local
+        second_part_duration = original_duration - split_point_local
+        
+        if first_part_duration < 100 or second_part_duration < 100:
+            return False 
+            
+        target_clip['duration'] = first_part_duration
+        
+        new_clip = target_clip.copy()
+        new_clip['start'] = split_point_global
+        new_clip['duration'] = second_part_duration
+        
+        self.clips.insert(target_clip_index + 1, new_clip)
+        
+        self._rebuild_track_with_gaps()
+        self.track_changed.emit()
+        self.update()
+        return True
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         visible_rect = event.rect()
         
-
         bg_color = QColor("#f0f0f0")
         if self.is_active_track:
             bg_color = QColor("#e6f3ff") 
@@ -241,54 +607,25 @@ class TimelineTrackWidget(QWidget):
                 painter.drawRect(clip_rect)
                 painter.drawText(clip_rect, Qt.AlignCenter, clip['name'])
 
+        if self.ghost_clip:
+            g_start = self.ms_to_px(self.ghost_clip['start'])
+            g_width = self.ms_to_px(self.ghost_clip['duration'])
+            g_rect = QRect(g_start, track_y + 2, g_width, track_height - 4)
+            
+            c = QColor(self.ghost_clip.get('color', '#3a6ea5'))
+            c.setAlpha(128) 
+            painter.fillRect(g_rect, c)
+            
+            pen_ghost = QPen(Qt.white, 2, Qt.DashLine)
+            painter.setPen(pen_ghost)
+            painter.drawRect(g_rect)
+            
+            painter.setPen(Qt.white)
+            painter.drawText(g_rect, Qt.AlignCenter, self.ghost_clip.get('name', ''))
+
         ph_x = self.ms_to_px(self.playhead_pos_ms)
         if visible_rect.left() - 10 <= ph_x <= visible_rect.right() + 10:
             painter.setPen(QPen(QColor("#ff0000"), 2))
             painter.drawLine(ph_x, 0, ph_x, self.height())
             painter.setBrush(QColor("#ff0000"))
             painter.drawPolygon([QPoint(ph_x - 6, 0), QPoint(ph_x + 6, 0), QPoint(ph_x, 15)])
-
-
-    def mousePressEvent(self, event):
-        self.mouse_pressed_signal.emit() 
-        if event.button() == Qt.LeftButton:
-            x = event.x()
-            y = event.y()
-            ms = self.px_to_ms(x)
-
-            if abs(x - self.ms_to_px(self.playhead_pos_ms)) <= 10:
-                self._dragging_playhead = True
-                return 
-
-            self._dragging_playhead = False
-            
-            track_y_start = 40
-            track_y_end = 100
-            clicked_clip = False
-            if track_y_start <= y <= track_y_end:
-                for i in range(len(self.clips)-1, -1, -1):
-                    c = self.clips[i]
-                    if not c.get('is_auto_gap', False):
-                        c_start = self.ms_to_px(c['start'])
-                        c_w = self.ms_to_px(c['duration'])
-                        if c_start <= x <= c_start + c_w:
-                            self.selected_index = i
-                            clicked_clip = True
-                            break
-            
-            if not clicked_clip:
-                self.selected_index = -1
-                self.set_playhead(ms)
-                self.seek_request.emit(ms)
-            
-            self.update()
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.LeftButton and self._dragging_playhead:
-            ms = max(0, self.px_to_ms(event.x()))
-            self.playhead_pos_ms = ms
-            self.seek_request.emit(ms)
-            self.update()
-
-    def mouseReleaseEvent(self, event):
-        self._dragging_playhead = False

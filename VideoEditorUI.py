@@ -82,6 +82,9 @@ class VideoEditorUI(QWidget):
         
         self.timeline_container.seek_request.connect(self._on_timeline_seek)
 
+        self.timeline_container.timeline_structure_changed.connect(self._on_timeline_structure_changed)
+        self.timeline_container.track_clicked_signal.connect(lambda: self._handle_timeline_action('toggle_play', 0) if self.global_playing_state else None)
+
         h_scrollbar = self.timeline_container.scroll_area.horizontalScrollBar()
         h_scrollbar.sliderPressed.connect(self._on_user_scroll_start)
         h_scrollbar.sliderMoved.connect(self._on_user_scroll_start)
@@ -90,6 +93,11 @@ class VideoEditorUI(QWidget):
 
         self.export_worker = None
         self.progress_dialog = None
+
+    def _on_timeline_structure_changed(self):
+        self._refresh_slider()
+        current_pos = self.timeline_container.time_slider.value()
+        self._synchronize_preview_with_timeline(current_pos)
 
     def _handle_timeline_action(self, action, value):
         slider = self.timeline_container.time_slider
@@ -159,10 +167,8 @@ class VideoEditorUI(QWidget):
                 self._apply_global_state_to_preview()
 
     def _apply_global_state_to_preview(self):
-        if self.global_playing_state:
-            self.video_preview._update_play_button_icon(QMediaPlayer.PlayingState)
-        else:
-            self.video_preview._update_play_button_icon(QMediaPlayer.PausedState)
+        state = QMediaPlayer.PlayingState if self.global_playing_state else QMediaPlayer.PausedState
+        self.video_preview._update_play_button_icon(state)
             
         should_mute = (self.global_playback_speed < 0)
         current_pos = self.timeline_container.time_slider.value()
@@ -233,7 +239,16 @@ class VideoEditorUI(QWidget):
         deleted = active_track.delete_selected_clip()
         if deleted:
             self._refresh_slider()
-            self._synchronize_preview_with_timeline(active_track.playhead_pos_ms)
+            
+            content_end = self.timeline_container.get_content_end_all_tracks()
+            
+            if content_end == 0:
+                self.timeline_container.time_slider.setValue(0)
+                self.timeline_container.set_global_playhead(0)
+                self.timeline_container.scroll_area.horizontalScrollBar().setValue(0)
+                self._synchronize_preview_with_timeline(0)
+            else:
+                self._synchronize_preview_with_timeline(active_track.playhead_pos_ms)
 
     def _on_user_scroll_start(self):
         self.auto_scroll_active = False
@@ -255,11 +270,12 @@ class VideoEditorUI(QWidget):
 
     def _refresh_slider(self):
         content_end = self.timeline_container.get_content_end_all_tracks()
+        
         if content_end > 0:
             self.timeline_container.time_slider.setMaximum(content_end)
             self.timeline_container.set_global_duration(content_end)
         else:
-            self.timeline_container.time_slider.setMaximum(5000)
+            self.timeline_container.time_slider.setMaximum(0) 
             self.timeline_container.set_global_duration(0)
 
     def _on_media_status_changed_ui(self, status):
@@ -284,7 +300,7 @@ class VideoEditorUI(QWidget):
                 
                 if active_clip:
                     clip_end_time = int(active_clip['start'] + active_clip['duration'])
-                    if abs(current_pos - clip_end_time) < 200:
+                    if abs(current_pos - clip_end_time) < 300:
                         next_pos = clip_end_time + 5
                         slider.blockSignals(True)
                         slider.setValue(next_pos)
@@ -318,6 +334,12 @@ class VideoEditorUI(QWidget):
 
     def _on_playback_state_changed(self, state):
         if self.is_scrubbing: return
+        
+        if state == QMediaPlayer.PausedState and self.global_playing_state:
+            sender = self.sender()
+            if sender and hasattr(sender, "mediaStatus"):
+                if sender.mediaStatus() == QMediaPlayer.EndOfMedia:
+                    return 
 
         if state == QMediaPlayer.PlayingState:
             self.auto_scroll_active = True

@@ -3,6 +3,7 @@ import os
 import hashlib
 import subprocess
 import time
+import shutil
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QSlider, QScrollArea
 )
@@ -13,7 +14,9 @@ from TimelineTrackWidget import TimelineTrackWidget
 
 class TimelineAndTracks(QWidget):
     seek_request = Signal(int)
-    timeline_changed = Signal()
+    timeline_structure_changed = Signal() 
+    track_clicked_signal = Signal()
+    
     IMG_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
     VID_EXT = {'.mp4', '.mov', '.avi', '.mkv'}
     AUD_EXT = {'.mp3', '.wav', '.flac'}
@@ -63,6 +66,7 @@ class TimelineAndTracks(QWidget):
         self.scroll_area.setFocusPolicy(Qt.NoFocus) 
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setAcceptDrops(True)
         
         self.tracks_container_widget = QWidget()
         self.tracks_layout_vertical = QVBoxLayout(self.tracks_container_widget)
@@ -79,8 +83,8 @@ class TimelineAndTracks(QWidget):
         self.active_track = None
 
         self.add_new_track()
-
-        self.add_tracks_button.clicked.connect(self.add_new_track)
+        self.add_tracks_button.clicked.connect(lambda: self.add_new_track(insert_index=-1))
+        self.cut_button.clicked.connect(self._on_cut_clicked)
 
     def _create_icon_btn(self, icon_path):
         btn = QPushButton()
@@ -93,26 +97,78 @@ class TimelineAndTracks(QWidget):
         """)
         return btn
 
-    def add_new_track(self):
+    def add_new_track(self, insert_index=-1):
         new_track = TimelineTrackWidget()
-        
         current_max_dur = self.get_content_end_all_tracks()
-        if current_max_dur == 0:
-            current_max_dur = 0
-
         
         current_pos = self.time_slider.value()
         new_track.playhead_pos_ms = current_pos
-        
         new_track.set_duration_and_fill_gaps(current_max_dur)
         
         new_track.mouse_pressed_signal.connect(lambda: self.set_active_track(new_track))
+        new_track.mouse_pressed_signal.connect(self.track_clicked_signal.emit)
         new_track.seek_request.connect(self.seek_request.emit)
+        new_track.scroll_request.connect(self._handle_auto_scroll)
         
-        self.tracks_layout_vertical.insertWidget(self.tracks_layout_vertical.count() - 1, new_track)
-        self.track_widgets.append(new_track)
-        
+        new_track.track_changed.connect(self.timeline_structure_changed.emit)
+        new_track.track_changed.connect(self._sync_all_tracks_duration)
+
+        new_track.request_overlap_insertion.connect(lambda clip, start: self._handle_overlap_insertion(new_track, clip, start))
+
+        if insert_index == -1:
+            idx = self.tracks_layout_vertical.count() - 1
+            self.tracks_layout_vertical.insertWidget(idx, new_track)
+            self.track_widgets.append(new_track)
+        else:
+            self.tracks_layout_vertical.insertWidget(insert_index, new_track)
+            self.track_widgets.insert(insert_index, new_track)
+
         self.set_active_track(new_track)
+        self._sync_all_tracks_duration()
+        
+        return new_track
+
+    def _on_cut_clicked(self):
+        active_track = self.get_active_track()
+        if active_track:
+            active_track.playhead_pos_ms = self.time_slider.value()
+            success = active_track.split_clip_at_playhead()
+            if success:
+                self.timeline_structure_changed.emit()
+
+    def _handle_overlap_insertion(self, source_track, clip_data, start_ms):
+        try:
+            idx = self.track_widgets.index(source_track)
+        except ValueError:
+            idx = -1
+        
+        if idx != -1:
+            new_track = self.add_new_track(insert_index=idx)
+            new_track.add_clip_at_pos(clip_data['path'], start_ms, clip_data['duration'], clip_data['color'])
+            self.timeline_structure_changed.emit()
+
+    def _sync_all_tracks_duration(self):
+        global_max = 0
+        for t in self.track_widgets:
+            end = t.get_content_end_ms()
+            if end > global_max:
+                global_max = end
+        self.time_slider.setMaximum(global_max)
+        
+        if global_max == 0:
+            self.time_slider.setValue(0)
+        for t in self.track_widgets:
+            t.set_duration_and_fill_gaps(global_max)
+
+    def _handle_auto_scroll(self, dx, dy):
+        if dx != 0:
+            h_bar = self.scroll_area.horizontalScrollBar()
+            h_step = 20 * dx
+            h_bar.setValue(h_bar.value() + h_step)
+        if dy != 0:
+            v_bar = self.scroll_area.verticalScrollBar()
+            v_step = 10 * dy
+            v_bar.setValue(v_bar.value() + v_step)
 
     def set_active_track(self, track_widget):
         for t in self.track_widgets:
@@ -158,6 +214,19 @@ class TimelineAndTracks(QWidget):
             if target < 0: target = 0
             self.scroll_area.horizontalScrollBar().setValue(target)
 
+    def _cache_file(self, file_path):
+        if not os.path.exists(file_path): return file_path
+        base_name = os.path.basename(file_path)
+        name, ext = os.path.splitext(base_name)
+        file_hash = hashlib.md5(f"{file_path}_{time.time()}".encode()).hexdigest()[:8]
+        new_name = f"{name}_{file_hash}{ext}"
+        new_path = os.path.join(self.tracks_cache_dir, new_name)
+        try:
+            shutil.copy2(file_path, new_path)
+            return new_path
+        except Exception as e:
+            print(f"Cache Error: {e}")
+            return file_path
 
     def insert_media_at_playhead(self, file_path):
         if not os.path.exists(file_path): return -1
@@ -165,67 +234,20 @@ class TimelineAndTracks(QWidget):
         active_track = self.get_active_track()
         if not active_track: return -1
 
-        insert_duration_ms = self._get_file_duration(file_path)
+        cached_path = self._cache_file(file_path)
+        insert_duration_ms = self._get_file_duration(cached_path)
         playhead_pos = active_track.playhead_pos_ms
-        clip_under_cursor = active_track.get_clip_at_ms(playhead_pos)
-
-        if not clip_under_cursor or clip_under_cursor.get('is_auto_gap', False):
-            insert_end = playhead_pos + insert_duration_ms
-            should_shift = False
-            for c in active_track.clips:
-                if not c.get('is_auto_gap', False):
-                    if c['start'] >= playhead_pos and c['start'] < insert_end:
-                        should_shift = True
-                        break
+        if active_track.is_overlapping(playhead_pos, insert_duration_ms):
+            idx = self.track_widgets.index(active_track)
+            new_track = self.add_new_track(insert_index=idx)
+            self._add_single_clip_to_track(new_track, cached_path, playhead_pos, insert_duration_ms)
             
-            if should_shift:
-                active_track.shift_clips_after(playhead_pos, insert_duration_ms)
-            
-            self._add_single_clip_to_track(active_track, file_path, playhead_pos, insert_duration_ms)
         else:
-            original_path = clip_under_cursor['path']
-            original_start = clip_under_cursor['start']
-            original_dur = clip_under_cursor['duration']
-            split_point_local_ms = playhead_pos - original_start
-            if split_point_local_ms < 100: 
-                 active_track.shift_clips_after(original_start, insert_duration_ms)
-                 self._add_single_clip_to_track(active_track, file_path, original_start, insert_duration_ms)
-                 return original_start
-            
-            if abs(original_dur - split_point_local_ms) < 100:
-                 end_pos = original_start + original_dur
-                 active_track.shift_clips_after(end_pos, insert_duration_ms)
-                 self._add_single_clip_to_track(active_track, file_path, end_pos, insert_duration_ms)
-                 return end_pos
-            
-            _, ext = os.path.splitext(original_path)
-            is_image = ext.lower() in self.IMG_EXT
-            part1_path = None
-            part2_path = None
-            
-            if is_image:
-                part1_path = original_path
-                part2_path = original_path
-            else:
-                split_sec = split_point_local_ms / 1000.0
-                total_sec = original_dur / 1000.0
-                part1_path = self._split_video_file(original_path, 0, split_sec, "part1")
-                part2_path = self._split_video_file(original_path, split_sec, total_sec, "part2")
-                
-                if not part1_path or not part2_path: return -1
+            self._add_single_clip_to_track(active_track, cached_path, playhead_pos, insert_duration_ms)
 
-            active_track.remove_clip_by_path_and_start(original_path, original_start)
-            old_clip_end = original_start + original_dur
-            active_track.shift_clips_after(old_clip_end, insert_duration_ms)
-            
-            self._add_single_clip_to_track(active_track, part1_path, original_start, split_point_local_ms)
-            insert_pos = original_start + split_point_local_ms
-            self._add_single_clip_to_track(active_track, file_path, insert_pos, insert_duration_ms)
-            
-            part2_pos = insert_pos + insert_duration_ms
-            part2_dur = original_dur - split_point_local_ms
-            self._add_single_clip_to_track(active_track, part2_path, part2_pos, part2_dur)
-
+        self.timeline_structure_changed.emit()
+        self._sync_all_tracks_duration()
+        
         return playhead_pos
 
     def _get_file_duration(self, path):
@@ -239,21 +261,7 @@ class TimelineAndTracks(QWidget):
             return 5000
 
     def _split_video_file(self, source_path, start_sec, end_sec, part_suffix):
-        base_name = os.path.basename(source_path)
-        name, ext = os.path.splitext(base_name)
-        unique = hashlib.md5(f"{source_path}_{start_sec}_{end_sec}_{time.time()}".encode()).hexdigest()[:6]
-        
-        out_name = f"{name}_{part_suffix}_{unique}{ext}"
-        out_path = os.path.join(self.tracks_cache_dir, out_name)
-        
-        duration = end_sec - start_sec
-        cmd = f'ffmpeg -y -ss {start_sec} -i "{source_path}" -t {duration} -c:v libx264 -preset ultrafast -c:a aac "{out_path}"'
-        try:
-            subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(out_path): return out_path
-        except Exception as e:
-            print(f"[Timeline] FFMPEG Error: {e}")
-        return None
+        return source_path 
 
     def _add_single_clip_to_track(self, track_widget, path, start_ms, duration_ms):
         _, ext = os.path.splitext(path)
