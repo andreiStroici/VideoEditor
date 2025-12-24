@@ -3,6 +3,7 @@ import os
 import time
 
 from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget
+from PySide6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -14,6 +15,7 @@ from TimelineAndTracks  import TimelineAndTracks
 from VideoTabContent import VideoTabContent
 from ImagePlayer import ImagePlayer
 
+from ExportWorker import ExportWorker
 class VideoEditorUI(QWidget):
     
     IMG_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
@@ -52,8 +54,9 @@ class VideoEditorUI(QWidget):
 
         self.is_scrubbing = False 
         
-        self.global_playback_speed = 1.0  # Viteza curenta (poate fi 2.0, -1.0 etc)
-        self.global_playing_state = False # False = Paused, True = Playing
+        # --- STATE GLOBAL ---
+        self.global_playback_speed = 1.0  
+        self.global_playing_state = False 
         
         self.seek_timer = QTimer()
         self.seek_timer.setInterval(50) 
@@ -68,6 +71,7 @@ class VideoEditorUI(QWidget):
         self.timeline_container.place_button.clicked.connect(self._on_place_clicked)
         self.timeline_container.delete_button.clicked.connect(self._on_delete_clicked)
 
+        self.toolbar.save_project_button.clicked.connect(self._on_save_project_clicked)
         self.video_preview.preview_tabs.currentChanged.connect(self._sync_timeline_connection)
         
         self.video_preview.timeline_action.connect(self._handle_timeline_action)
@@ -84,6 +88,9 @@ class VideoEditorUI(QWidget):
 
         self._sync_timeline_connection(0)
 
+        self.export_worker = None
+        self.progress_dialog = None
+
     def _handle_timeline_action(self, action, value):
         slider = self.timeline_container.time_slider
         
@@ -99,7 +106,7 @@ class VideoEditorUI(QWidget):
         elif action == 'start':
             slider.setValue(0)
             self.timeline_container.set_global_playhead(0)
-            self.global_playing_state = False
+            self.global_playing_state = False 
             self.global_playback_speed = 1.0
             self._synchronize_preview_with_timeline(0)
             
@@ -107,15 +114,14 @@ class VideoEditorUI(QWidget):
             maxim = slider.maximum()
             slider.setValue(maxim)
             self.timeline_container.set_global_playhead(maxim)
-            self.global_playing_state = False
+            self.global_playing_state = False 
             self.global_playback_speed = 1.0
             self._synchronize_preview_with_timeline(maxim)
 
         elif action == 'step':
             self.global_playing_state = False
-            
             current = slider.value()
-            step_size = 33 # aprox 1 frame
+            step_size = 33 
             new_val = current + int(value * step_size)
             new_val = max(0, min(new_val, slider.maximum()))
             
@@ -139,7 +145,7 @@ class VideoEditorUI(QWidget):
                         elif temp_rate == 2.0: temp_rate = 0.5
                         elif temp_rate == 0.5: temp_rate = 1.0
                         else: temp_rate = 1.0
-                else: # backward
+                else: 
                     if temp_rate > 0: temp_rate = -0.5
                     else:
                         if temp_rate == -0.5: temp_rate = -1.0
@@ -157,17 +163,21 @@ class VideoEditorUI(QWidget):
             self.video_preview._update_play_button_icon(QMediaPlayer.PlayingState)
         else:
             self.video_preview._update_play_button_icon(QMediaPlayer.PausedState)
+            
         should_mute = (self.global_playback_speed < 0)
         current_pos = self.timeline_container.time_slider.value()
         self._update_audio_mixer(current_pos, was_playing=self.global_playing_state, mute=should_mute)
 
         current_tab = self.video_preview.preview_tabs.currentWidget()
         if isinstance(current_tab, VideoTabContent) and current_tab.player:
+            
             current_tab._logical_rate = self.global_playback_speed
+            
             if isinstance(current_tab.player, QMediaPlayer):
                 current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
             elif isinstance(current_tab.player, ImagePlayer):
                 current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
+            
             if self.global_playback_speed < 0:
                 if self.global_playing_state:
                     if not current_tab.reverse_timer.isActive():
@@ -184,6 +194,10 @@ class VideoEditorUI(QWidget):
                     current_tab.player.pause()
 
     def closeEvent(self, event):
+        if self.export_worker and self.export_worker.isRunning():
+            self.export_worker.cancel()
+            self.export_worker.wait()
+
         for key, player in self.active_audio_players.items():
             try:
                 player.stop()
@@ -201,14 +215,12 @@ class VideoEditorUI(QWidget):
     def _on_slider_pressed(self):
         self.is_scrubbing = True
         self.auto_scroll_active = False
-        
         self.global_playing_state = False
         self._apply_global_state_to_preview()
 
     def _on_slider_released(self):
         self.is_scrubbing = False
         final_val = self.timeline_container.time_slider.value()
-
         self._synchronize_preview_with_timeline(final_val)
 
     def _on_delete_clicked(self):
@@ -244,12 +256,11 @@ class VideoEditorUI(QWidget):
     def _refresh_slider(self):
         content_end = self.timeline_container.get_content_end_all_tracks()
         if content_end > 0:
-            slider_max = content_end
+            self.timeline_container.time_slider.setMaximum(content_end)
+            self.timeline_container.set_global_duration(content_end)
         else:
-            slider_max = 5000 
-
-        self.timeline_container.time_slider.setMaximum(slider_max)
-        self.timeline_container.set_global_duration(slider_max)
+            self.timeline_container.time_slider.setMaximum(5000)
+            self.timeline_container.set_global_duration(0)
 
     def _on_media_status_changed_ui(self, status):
         if status == QMediaPlayer.LoadedMedia or status == QMediaPlayer.BufferedMedia:
@@ -310,6 +321,7 @@ class VideoEditorUI(QWidget):
 
         if state == QMediaPlayer.PlayingState:
             self.auto_scroll_active = True
+        
         should_play_audio = self.global_playing_state and (self.global_playback_speed > 0)
         
         for player in self.active_audio_players.values():
@@ -322,9 +334,12 @@ class VideoEditorUI(QWidget):
         if self.is_scrubbing: return
         ms = int(ms)
         if self.timeline_container.time_slider.isSliderDown(): return
+
         slider = self.timeline_container.time_slider
         if not self.timeline_container.track_widgets: return
+        
         approx_global_pos = self.timeline_container.track_widgets[0].playhead_pos_ms
+        
         if self.global_playing_state and self.global_playback_speed < 0 and ms < 50:
              prev_pos = approx_global_pos - 100 
              if prev_pos >= 0:
@@ -549,10 +564,10 @@ class VideoEditorUI(QWidget):
                 new_tab.player.setPosition(local_pos)
 
         else:
-
             if self._connected_timeline_player:
                 if abs(self._connected_timeline_player.position() - local_pos) > 60:
                      self._connected_timeline_player.setPosition(local_pos)
+
         self._apply_global_state_to_preview()
 
     def _force_update_position(self, pos):
@@ -566,10 +581,69 @@ class VideoEditorUI(QWidget):
         self.timeline_container.time_slider.setValue(pos)
         self.timeline_container.time_slider.blockSignals(False)
         self.timeline_container.set_global_playhead(pos)
+
+    def _on_save_project_clicked(self):
+        self.global_playing_state = False
+        self._apply_global_state_to_preview()
+
+        if not self.timeline_container.track_widgets:
+            QMessageBox.warning(self, "No Tracks", "There are no tracks to export.")
+            return
+        content_end = self.timeline_container.get_content_end_all_tracks()
+        if content_end < 100:
+             QMessageBox.warning(self, "Empty Project", "The project appears to be empty (0 duration). Please add clips.")
+             return
+
+        all_tracks = self.timeline_container.track_widgets
+
+        filters = "Video Files (*.mp4)"
+        output_path, _ = QFileDialog.getSaveFileName(self, "Save Project As Video", os.path.expanduser("~"), filters)
         
-        if self.auto_scroll_active and self.timeline_container.track_widgets:
-            cursor_x = self.timeline_container.track_widgets[0].ms_to_px(pos)
-            self.timeline_container.ensure_cursor_visible(cursor_x)
+        if not output_path:
+            return 
+        
+        if not output_path.lower().endswith(".mp4"):
+            output_path += ".mp4"
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        temp_render_dir = os.path.join(base_dir, "temp_render")
+        os.makedirs(temp_render_dir, exist_ok=True)
+        
+        total_items = 0
+        for t in all_tracks: total_items += len(t.clips)
+
+        self.progress_dialog = QProgressDialog("Rendering Project...", "Cancel", 0, total_items + 5, self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        
+        self.export_worker = ExportWorker(all_tracks, output_path, temp_render_dir, self.IMG_EXT)
+        
+        self.export_worker.progress_update.connect(self._on_export_progress)
+        self.export_worker.finished_success.connect(self._on_export_success)
+        self.export_worker.finished_error.connect(self._on_export_error)
+        
+        self.progress_dialog.canceled.connect(self.export_worker.cancel)
+        
+        self.export_worker.start()
+        self.progress_dialog.show()
+
+    def _on_export_progress(self, val, msg):
+        if self.progress_dialog:
+            self.progress_dialog.setValue(val)
+            self.progress_dialog.setLabelText(msg)
+
+    def _on_export_success(self, path):
+        if self.progress_dialog:
+            self.progress_dialog.close()
+        QMessageBox.information(self, "Success", f"Video exported successfully to:\n{path}")
+        self.export_worker = None
+
+    def _on_export_error(self, msg):
+        if self.progress_dialog:
+            self.progress_dialog.close()
+        if "Cancelled" not in msg:
+            QMessageBox.critical(self, "Export Error", f"An error occurred:\n{msg}")
+        self.export_worker = None
             
 if __name__ == "__main__":
     app = QApplication(sys.argv)

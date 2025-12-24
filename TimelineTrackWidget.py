@@ -62,16 +62,14 @@ class TimelineTrackWidget(QWidget):
         self.playhead_pos_ms = 0
         self.update()
 
-    # //New Block
+
     def _rebuild_track_with_gaps(self, force_duration_to=None):
-        # 1. Luam doar clipurile reale
         user_clips = [c for c in self.clips if not c.get('is_auto_gap', False)]
         user_clips.sort(key=lambda x: x['start'])
         
         new_clip_list = []
         current_time = 0
-        
-        # 2. Umplem golurile dintre clipuri
+    
         for clip in user_clips:
             if clip['start'] > current_time:
                 gap_duration = clip['start'] - current_time
@@ -88,9 +86,7 @@ class TimelineTrackWidget(QWidget):
             
             new_clip_list.append(clip)
             current_time = clip['start'] + clip['duration']
-            
-        # 3. CRITIC: Umplem pana la capatul track-ului (Aliniere Track-uri)
-        # Daca ni s-a cerut o durata anume (cea a celui mai lung track), completam cu Gap.
+
         if force_duration_to is not None:
             if current_time < force_duration_to:
                 gap_duration = force_duration_to - current_time
@@ -106,24 +102,19 @@ class TimelineTrackWidget(QWidget):
                     new_clip_list.append(final_gap)
             
         self.clips = new_clip_list
-    # //End OF Block
-    
-    # //New Block
+
     def set_duration_and_fill_gaps(self, max_ms):
         """
         Seteaza durata si umple cu gap-uri pana la acea durata.
         """
         self.duration_ms = max(max_ms, 60000)
-        # Apelam rebuild cu parametru pentru a forta gap-ul de final
         self._rebuild_track_with_gaps(force_duration_to=max_ms)
         self._update_dimensions()
         self.update()
-    # //End OF Block
 
-    # //New Block
     def insert_clip_physically(self, clip_dict):
         self.clips.append(clip_dict)
-        # Reconstruim simplu, fara forta, VideoEditorUI va apela set_duration_and_fill mai tarziu
+
         self._rebuild_track_with_gaps() 
         self.update()
     
@@ -200,22 +191,16 @@ class TimelineTrackWidget(QWidget):
 
         visible_rect = event.rect()
         
-        # 1. Desenam fundalul (Albastru deschis daca e activ, Gri daca nu)
+
         bg_color = QColor("#f0f0f0")
         if self.is_active_track:
             bg_color = QColor("#e6f3ff") 
             
         painter.fillRect(visible_rect, bg_color)
-        
-        # 2. Desenam contur albastru daca e activ
         if self.is_active_track:
             pen = QPen(QColor("#3a6ea5"), 2)
             painter.setPen(pen)
             painter.drawRect(visible_rect.adjusted(1,1,-1,-1))
-
-        # --- AICI INCEPE LOGICA VECHE DE DESENARE (Rigla, Clips, etc) ---
-        # (Am pastrat logica ta veche, doar am pus-o sub noul background)
-        
         ruler_height = 30
         painter.fillRect(QRect(visible_rect.left(), 0, visible_rect.width(), ruler_height), QColor("#e0e0e0"))
         
@@ -265,10 +250,7 @@ class TimelineTrackWidget(QWidget):
 
 
     def mousePressEvent(self, event):
-        # Anuntam parintele (TimelineAndTracks) ca userul a dat click pe acest track
         self.mouse_pressed_signal.emit() 
-        
-        # --- LOGICA VECHE DE SELECTIE ---
         if event.button() == Qt.LeftButton:
             x = event.x()
             y = event.y()

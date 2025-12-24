@@ -98,7 +98,8 @@ class TimelineAndTracks(QWidget):
         
         current_max_dur = self.get_content_end_all_tracks()
         if current_max_dur == 0:
-            current_max_dur = 5000 
+            current_max_dur = 0
+
         
         current_pos = self.time_slider.value()
         new_track.playhead_pos_ms = current_pos
