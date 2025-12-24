@@ -172,11 +172,14 @@ class TimelineAndTracks(QWidget):
 
     def set_active_track(self, track_widget):
         for t in self.track_widgets:
-            t.is_active_track = False
-            t.update()
+            if t != track_widget:
+                t.is_active_track = False
+                t.clear_selection()
+                t.update()
+            else:
+                t.is_active_track = True
+                t.update()
         
-        track_widget.is_active_track = True
-        track_widget.update()
         self.active_track = track_widget
 
     def get_active_track(self):

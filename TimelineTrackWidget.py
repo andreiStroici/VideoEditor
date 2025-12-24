@@ -39,6 +39,7 @@ class TimelineTrackWidget(QWidget):
         self.ghost_clip = None 
         self.current_drag_clip_info = None 
         self.last_drag_global_pos = None 
+        self.current_snap_x = None 
 
         self._auto_scroll_timer = QTimer(self)
         self._auto_scroll_timer.setInterval(50) 
@@ -241,6 +242,34 @@ class TimelineTrackWidget(QWidget):
             if start_ms < c_end and end_ms > c_start:
                 return True
         return False
+    
+    def _calculate_snap_position(self, proposed_start_ms, clip_duration_ms, exclude_index=-1):
+        SNAP_THRESHOLD_PX = 15
+        snap_threshold_ms = self.px_to_ms(SNAP_THRESHOLD_PX)
+        candidates = [0]
+        for i, clip in enumerate(self.clips):
+            if i == exclude_index: continue
+            if clip.get('is_auto_gap', False): continue
+            candidates.append(clip['start'])
+            candidates.append(clip['start'] + clip['duration'])
+        best_start = proposed_start_ms
+        min_diff = float('inf')
+        snap_indicator_x = None
+        for cand in candidates:
+            diff = abs(proposed_start_ms - cand)
+            if diff < snap_threshold_ms and diff < min_diff:
+                min_diff = diff
+                best_start = cand
+                snap_indicator_x = self.ms_to_px(cand)
+        proposed_end_ms = proposed_start_ms + clip_duration_ms
+        for cand in candidates:
+            diff = abs(proposed_end_ms - cand)
+            if diff < snap_threshold_ms and diff < min_diff:
+                min_diff = diff
+                best_start = cand - clip_duration_ms
+                snap_indicator_x = self.ms_to_px(cand)
+
+        return best_start, snap_indicator_x
 
     def mousePressEvent(self, event):
         self.mouse_pressed_signal.emit() 
@@ -335,6 +364,7 @@ class TimelineTrackWidget(QWidget):
         self.ghost_clip = None
         self.current_drag_clip_info = None
         self.last_drag_global_pos = None
+        self.current_snap_x = None # Reset snap visual
         self._scroll_direction_x = 0
         self._scroll_direction_y = 0
         self._auto_scroll_timer.stop()
@@ -367,10 +397,15 @@ class TimelineTrackWidget(QWidget):
                 drop_ms = self.px_to_ms(x)
                 
                 offset = self.current_drag_clip_info.get('offset_ms', self.current_drag_clip_info['duration'] / 2)
-                new_start = max(0, int(drop_ms - offset))
+                raw_start = max(0, int(drop_ms - offset))
+                exclude_idx = -1
+                if 'origin_index' in self.current_drag_clip_info:
+                    pass 
+                final_start, snap_x = self._calculate_snap_position(raw_start, self.current_drag_clip_info['duration'])
+                self.current_snap_x = snap_x
 
                 self.ghost_clip = {
-                    'start': new_start,
+                    'start': final_start,
                     'duration': self.current_drag_clip_info['duration'],
                     'color': self.current_drag_clip_info['color'],
                     'name': self.current_drag_clip_info['name']
@@ -400,10 +435,16 @@ class TimelineTrackWidget(QWidget):
                 else:
                     offset = clip_dict['duration'] / 2
 
-                new_start = max(0, int(drop_ms - offset))
+                raw_start = max(0, int(drop_ms - offset))
+                exclude_index = -1
+                if event.source() == self:
+                    exclude_index = data_dict['origin_index']
+                
+                final_start, snap_x = self._calculate_snap_position(raw_start, clip_dict['duration'], exclude_index)
+                self.current_snap_x = snap_x
                 
                 self.ghost_clip = {
-                    'start': new_start,
+                    'start': final_start,
                     'duration': clip_dict['duration'],
                     'color': clip_dict['color'],
                     'name': clip_dict['name']
@@ -448,6 +489,7 @@ class TimelineTrackWidget(QWidget):
         self.ghost_clip = None
         self.current_drag_clip_info = None
         self.last_drag_global_pos = None
+        self.current_snap_x = None
         self._scroll_direction_x = 0
         self._scroll_direction_y = 0 
         self._auto_scroll_timer.stop()
@@ -458,6 +500,7 @@ class TimelineTrackWidget(QWidget):
         self.ghost_clip = None
         self.current_drag_clip_info = None
         self.last_drag_global_pos = None
+        self.current_snap_x = None
         self._scroll_direction_x = 0
         self._scroll_direction_y = 0 
         self._auto_scroll_timer.stop()
@@ -475,26 +518,26 @@ class TimelineTrackWidget(QWidget):
             else:
                 offset = clip_dict['duration'] / 2
 
-            new_start = max(0, int(drop_ms - offset))
+            raw_start = max(0, int(drop_ms - offset))
             
             source = event.source()
-            
             exclude_index = -1
             if source == self:
                 exclude_index = data_dict['origin_index']
+            final_start, _ = self._calculate_snap_position(raw_start, clip_dict['duration'], exclude_index)
 
-            if self.is_overlapping(new_start, clip_dict['duration'], excluded_index=exclude_index):
-                clip_dict['start'] = new_start
+            if self.is_overlapping(final_start, clip_dict['duration'], excluded_index=exclude_index):
+                clip_dict['start'] = final_start
                 if source == self:
                     self.delete_clip_by_index(data_dict['origin_index'])
                 elif isinstance(source, TimelineTrackWidget):
                     source.delete_clip_by_index(data_dict['origin_index'])
                 
-                self.request_overlap_insertion.emit(clip_dict, new_start)
+                self.request_overlap_insertion.emit(clip_dict, final_start)
                 event.accept()
                 return
 
-            clip_dict['start'] = new_start
+            clip_dict['start'] = final_start
             
             if source != self and isinstance(source, TimelineTrackWidget):
                 source.delete_clip_by_index(data_dict['origin_index'])
@@ -623,9 +666,18 @@ class TimelineTrackWidget(QWidget):
             painter.setPen(Qt.white)
             painter.drawText(g_rect, Qt.AlignCenter, self.ghost_clip.get('name', ''))
 
+        if self.current_snap_x is not None:
+             painter.setPen(QPen(QColor("#00FF00"), 2))
+             painter.drawLine(self.current_snap_x, 0, self.current_snap_x, self.height())
+
         ph_x = self.ms_to_px(self.playhead_pos_ms)
         if visible_rect.left() - 10 <= ph_x <= visible_rect.right() + 10:
             painter.setPen(QPen(QColor("#ff0000"), 2))
             painter.drawLine(ph_x, 0, ph_x, self.height())
             painter.setBrush(QColor("#ff0000"))
             painter.drawPolygon([QPoint(ph_x - 6, 0), QPoint(ph_x + 6, 0), QPoint(ph_x, 15)])
+        
+    def clear_selection(self):
+        if self.selected_index != -1:
+            self.selected_index = -1
+            self.update()
