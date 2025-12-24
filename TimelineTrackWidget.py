@@ -681,3 +681,9 @@ class TimelineTrackWidget(QWidget):
         if self.selected_index != -1:
             self.selected_index = -1
             self.update()
+
+    def set_scale(self, new_pixels_per_second):
+        """Metoda apelata de TimelineAndTracks pentru a schimba zoom-ul"""
+        self.pixels_per_second = new_pixels_per_second
+        self._update_dimensions()
+        self.update()

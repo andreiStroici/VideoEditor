@@ -7,8 +7,8 @@ import shutil
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QSlider, QScrollArea
 )
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer
+from PySide6.QtGui import QIcon, QKeySequence, QCursor, QShortcut
 
 from TimelineTrackWidget import TimelineTrackWidget
 
@@ -67,6 +67,7 @@ class TimelineAndTracks(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setAcceptDrops(True)
+        self.scroll_area.viewport().installEventFilter(self)
         
         self.tracks_container_widget = QWidget()
         self.tracks_layout_vertical = QVBoxLayout(self.tracks_container_widget)
@@ -81,10 +82,26 @@ class TimelineAndTracks(QWidget):
 
         self.track_widgets = []
         self.active_track = None
-
+        self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
+        self.zoom_in_shortcut.activated.connect(lambda: self._perform_zoom(1))
+        self.zoom_in_kp_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
+        self.zoom_in_kp_shortcut.activated.connect(lambda: self._perform_zoom(1))
+        self.zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
+        self.zoom_out_shortcut.activated.connect(lambda: self._perform_zoom(-1))
         self.add_new_track()
         self.add_tracks_button.clicked.connect(lambda: self.add_new_track(insert_index=-1))
         self.cut_button.clicked.connect(self._on_cut_clicked)
+
+    def eventFilter(self, source, event):
+        if source == self.scroll_area.viewport() and event.type() == QEvent.Wheel:
+            if event.modifiers() & Qt.ControlModifier:
+                delta = event.angleDelta().y()
+                viewport_x = event.position().x()
+                scroll_x = self.scroll_area.horizontalScrollBar().value()
+                absolute_mouse_x = viewport_x + scroll_x
+                self._on_track_zoom_request(delta, absolute_mouse_x)
+                return True 
+        return super().eventFilter(source, event)
 
     def _create_icon_btn(self, icon_path):
         btn = QPushButton()
@@ -99,8 +116,10 @@ class TimelineAndTracks(QWidget):
 
     def add_new_track(self, insert_index=-1):
         new_track = TimelineTrackWidget()
+        if self.track_widgets:
+            current_zoom_pps = self.track_widgets[0].pixels_per_second
+            new_track.set_scale(current_zoom_pps)
         current_max_dur = self.get_content_end_all_tracks()
-        
         current_pos = self.time_slider.value()
         new_track.playhead_pos_ms = current_pos
         new_track.set_duration_and_fill_gaps(current_max_dur)
@@ -125,8 +144,45 @@ class TimelineAndTracks(QWidget):
 
         self.set_active_track(new_track)
         self._sync_all_tracks_duration()
-        
+        self.set_global_playhead(current_pos)
         return new_track
+
+    def _perform_zoom(self, direction):
+        if not self.track_widgets: return
+        global_mouse_pos = QCursor.pos()
+        local_mouse_pos = self.scroll_area.mapFromGlobal(global_mouse_pos)
+        if not self.scroll_area.rect().contains(local_mouse_pos):
+            return
+        current_pps = self.track_widgets[0].pixels_per_second
+        zoom_factor = 1.25 if direction > 0 else 0.8
+        new_pps = max(10, min(600, int(current_pps * zoom_factor)))
+        if new_pps == current_pps: return
+        viewport_x = local_mouse_pos.x()
+        h_bar = self.scroll_area.horizontalScrollBar()
+        current_scroll = h_bar.value()
+        absolute_mouse_x = viewport_x + current_scroll
+        time_at_mouse = absolute_mouse_x / current_pps
+        for t in self.track_widgets:
+            t.set_scale(new_pps)  
+        new_absolute_mouse_x = time_at_mouse * new_pps
+        new_scroll_pos = int(new_absolute_mouse_x - viewport_x)
+        h_bar.setValue(new_scroll_pos)
+
+    def _on_track_zoom_request(self, delta, absolute_mouse_x):
+        if not self.track_widgets: return
+        current_pps = self.track_widgets[0].pixels_per_second
+        zoom_factor = 1.1 if delta > 0 else 0.9
+        new_pps = max(10, min(500, int(current_pps * zoom_factor)))
+        if new_pps == current_pps: return
+        time_at_mouse = absolute_mouse_x / current_pps
+        h_bar = self.scroll_area.horizontalScrollBar()
+        current_scroll = h_bar.value()
+        screen_offset = absolute_mouse_x - current_scroll
+        for t in self.track_widgets:
+            t.set_scale(new_pps) 
+        new_abs_mouse_x = time_at_mouse * new_pps
+        new_scroll_pos = int(new_abs_mouse_x - screen_offset)
+        h_bar.setValue(new_scroll_pos)
 
     def _on_cut_clicked(self):
         active_track = self.get_active_track()
