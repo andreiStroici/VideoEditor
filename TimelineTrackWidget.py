@@ -163,11 +163,15 @@ class TimelineTrackWidget(QWidget):
         return False
 
     def shift_clips_after(self, threshold_ms, shift_amount_ms):
-        if shift_amount_ms <= 0: return
+        if shift_amount_ms == 0: return
+
         for clip in self.clips:
             if not clip.get('is_auto_gap', False):
                 if clip['start'] >= threshold_ms:
                     clip['start'] += shift_amount_ms
+                    if clip['start'] < 0:
+                        clip['start'] = 0
+
         self._rebuild_track_with_gaps()
         self.update()
         self.track_changed.emit()

@@ -93,6 +93,8 @@ class TimelineAndTracks(QWidget):
         self.add_tracks_button.clicked.connect(lambda: self.add_new_track(insert_index=-1))
         self.cut_button.clicked.connect(self._on_cut_clicked)
 
+        self.align_tracks_button.clicked.connect(self._on_align_tracks_clicked)
+
     def eventFilter(self, source, event):
         if source == self.scroll_area.viewport() and event.type() == QEvent.Wheel:
             if event.modifiers() & Qt.ControlModifier:
@@ -192,6 +194,67 @@ class TimelineAndTracks(QWidget):
             success = active_track.split_clip_at_playhead()
             if success:
                 self.timeline_structure_changed.emit()
+
+    def _on_align_tracks_clicked(self):
+        if not self.track_widgets:
+            return
+
+        active_intervals = []
+        for track in self.track_widgets:
+            for clip in track.clips:
+                if not clip.get('is_auto_gap', False):
+                    start = clip['start']
+                    end = start + clip['duration']
+                    active_intervals.append((start, end))
+
+        if not active_intervals:
+            return
+
+        active_intervals.sort(key=lambda x: x[0])
+
+        merged_intervals = []
+        if active_intervals:
+            curr_start, curr_end = active_intervals[0]
+            for i in range(1, len(active_intervals)):
+                next_start, next_end = active_intervals[i]
+                
+                if next_start < curr_end: 
+                    curr_end = max(curr_end, next_end)
+                else:
+                    merged_intervals.append((curr_start, curr_end))
+                    curr_start, curr_end = next_start, next_end
+            merged_intervals.append((curr_start, curr_end))
+
+        gaps_to_remove = [] 
+
+        if merged_intervals[0][0] > 0:
+            gaps_to_remove.append((0, merged_intervals[0][0]))
+
+        for i in range(len(merged_intervals) - 1):
+            gap_start = merged_intervals[i][1]
+            gap_end = merged_intervals[i+1][0]
+            duration = gap_end - gap_start
+            
+            if duration > 10: 
+                gaps_to_remove.append((gap_start, duration))
+
+        gaps_to_remove.sort(key=lambda x: x[0], reverse=True)
+
+        structure_changed = False
+        for gap_start, gap_duration in gaps_to_remove:
+            for track in self.track_widgets:
+                track.shift_clips_after(gap_start, -gap_duration)
+            structure_changed = True
+
+        if structure_changed:
+            self._sync_all_tracks_duration()
+            self.timeline_structure_changed.emit()
+            
+            current_pos = self.time_slider.value()
+            max_pos = self.time_slider.maximum()
+            if current_pos > max_pos:
+                 self.time_slider.setValue(max_pos)
+                 self.set_global_playhead(max_pos)
 
     def _handle_overlap_insertion(self, source_track, clip_data, start_ms):
         try:
