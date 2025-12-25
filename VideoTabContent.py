@@ -236,17 +236,20 @@ class VideoTabContent(QWidget):
         if not self.player:
             self.reverse_timer.stop()
             return
-        if self.player.position() <= 0:
+            
+        current_pos = self.player.position()
+        step_ms = 33 * abs(self._logical_rate)
+        new_pos = int(current_pos - step_ms)
+        
+        if new_pos <= 0:
             self.reverse_timer.stop()
             self._logical_rate = 1.0
-            self.player.pause()
             self.player.setPosition(0)
+            self.player.pause()
             if self.audio_output: self.audio_output.setMuted(False)
             self.player_state_changed.emit(QMediaPlayer.PausedState)
-            return
-        step_ms = 33 * abs(self._logical_rate)
-        new_pos = int(max(0, self.player.position() - step_ms))
-        self.player.setPosition(new_pos)
+        else:
+            self.player.setPosition(new_pos)
 
     def change_speed_mode(self, direction):
         if not self.player: return
