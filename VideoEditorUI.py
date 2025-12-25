@@ -710,6 +710,8 @@ class VideoEditorUI(QWidget):
         self.export_worker = None
             
 if __name__ == "__main__":
+    from PySide6.QtGui import QImageReader
+    QImageReader.setAllocationLimit(1024)
     app = QApplication(sys.argv)
     editor = VideoEditorUI()
     editor.show()

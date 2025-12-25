@@ -5,12 +5,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 try:
-
     from ui_components import (
         CropWidget, 
         ChangeFPSWidget, 
         PaddingWidget, 
-        PlaybackSpeedWidget
+        PlaybackSpeedWidget,
+        RotateWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -53,11 +53,13 @@ class EnchancementsTabs(QWidget):
         self.speed_ui = PlaybackSpeedWidget()
         self.crop_ui = CropWidget()
         self.padding_ui = PaddingWidget()
+        self.rotate_ui = RotateWidget()
         
         trans_layout.addWidget(self.fps_ui)
         trans_layout.addWidget(self.speed_ui)
         trans_layout.addWidget(self.crop_ui)
         trans_layout.addWidget(self.padding_ui)
+        trans_layout.addWidget(self.rotate_ui)
         trans_layout.addStretch()
 
         scroll.setWidget(scroll_content)
@@ -125,6 +127,13 @@ class EnchancementsTabs(QWidget):
         else:
             self.padding_ui.status_label.setText("")
 
+        self.rotate_ui.setEnabled(is_visual)
+        if not is_visual:
+            self.rotate_ui.enable_cb.setChecked(False)
+            self.rotate_ui.status_label.setText("(Not supported for Audio)")
+        else:
+            self.rotate_ui.status_label.setText("")
+
         filters = clip_data.get('filters', {})
         transforms = filters.get('Transforms', {}).get('Video', {})
         
@@ -132,12 +141,14 @@ class EnchancementsTabs(QWidget):
         self.speed_ui.set_data(transforms.get('Playback speed', {}))
         self.crop_ui.set_data(transforms.get('Crop', {}), clip_data.get('resolution', (0,0)))
         self.padding_ui.set_data(transforms.get('Padding', {}))
+        self.rotate_ui.set_data(transforms.get('Rotate', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
         fps_values = self.fps_ui.get_data()
         padding_values = self.padding_ui.get_data()
         speed_values = self.speed_ui.get_data()
+        rotate_values = self.rotate_ui.get_data()
         
         filter_stack = {
             'Transforms': {
@@ -145,7 +156,8 @@ class EnchancementsTabs(QWidget):
                     'Change FPS': fps_values,
                     'Playback speed': speed_values,
                     'Crop': crop_values,
-                    'Padding': padding_values
+                    'Padding': padding_values,
+                    'Rotate': rotate_values
                 }
             }
         }
