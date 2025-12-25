@@ -26,7 +26,6 @@ class MediaTabs(QWidget):
         self.media_tabs.setContentsMargins(0, 0, 0, 0)
         self.media_tabs.setFocusPolicy(Qt.NoFocus)
 
-        # Folosim ClickableListWidget
         self.show_all_tab_list = ClickableListWidget()
         self._setup_media_grid(self.show_all_tab_list, SPACING)
 
@@ -36,15 +35,19 @@ class MediaTabs(QWidget):
         self.audio_list = ClickableListWidget()
         self._setup_media_grid(self.audio_list, SPACING)
 
+        self.image_list = ClickableListWidget()
+        self._setup_media_grid(self.image_list, SPACING)
         self.media_tabs.addTab(self.show_all_tab_list, "Show All")
         self.media_tabs.addTab(self.video_list, "Video")
         self.media_tabs.addTab(self.audio_list, "Audio")
+        self.media_tabs.addTab(self.image_list, "Image")
 
         layout.addWidget(self.media_tabs)
-
         self.show_all_tab_list.itemDoubleClicked.connect(self._handle_double_click)
         self.video_list.itemDoubleClicked.connect(self._handle_double_click)
         self.audio_list.itemDoubleClicked.connect(self._handle_double_click)
+        self.image_list.itemDoubleClicked.connect(self._handle_double_click)
+
 
     def _handle_double_click(self, item):
         path = item.data(Qt.UserRole)
@@ -138,6 +141,7 @@ class MediaTabs(QWidget):
         self.show_all_tab_list.clear()
         self.video_list.clear()
         self.audio_list.clear()
+        self.image_list.clear()
 
         for filePath in self._all_files:
             ext = os.path.splitext(filePath)[1].lower()
@@ -165,9 +169,17 @@ class MediaTabs(QWidget):
                 item_video.setTextAlignment(Qt.AlignCenter)
                 self.video_list.addItem(item_video)
 
+            elif ext in self.SUPPORTED_IMAGE_EXT:
+                item_image = QListWidgetItem(icon, display_name)
+                item_image.setToolTip(filePath)
+                item_image.setData(Qt.UserRole, filePath)
+                item_image.setTextAlignment(Qt.AlignCenter)
+                self.image_list.addItem(item_image)
         self._update_grid_size(self.show_all_tab_list)
         self._update_grid_size(self.video_list)
         self._update_grid_size(self.audio_list)
+        self._update_grid_size(self.image_list)
+
 
     def add_files(self, paths: list):
         added = 0

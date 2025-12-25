@@ -98,7 +98,7 @@ class TimelineTrackWidget(QWidget):
             viewport_width = self.parent().width()
         final_width = max(duration_width, viewport_width)
         self.setMinimumWidth(final_width)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(120)
 
     def set_playhead(self, ms):
         self.playhead_pos_ms = max(0, ms)
