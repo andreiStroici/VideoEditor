@@ -98,6 +98,8 @@ class VideoEditorUI(QWidget):
 
         self._sync_timeline_connection(0)
 
+        self.enchancements_tabs.apply_filters_signal.connect(self.timeline_container.handle_apply_filters)
+        self.timeline_container.clip_selected_for_filters.connect(self.enchancements_tabs.load_clip_data)
         self.export_worker = None
         self.progress_dialog = None
 
@@ -625,7 +627,9 @@ class VideoEditorUI(QWidget):
 
         else:
             if self._connected_timeline_player:
-                if abs(self._connected_timeline_player.position() - local_pos) > 60:
+                is_reversing = (self.global_playing_state and self.global_playback_speed < 0)
+                
+                if is_reversing or abs(self._connected_timeline_player.position() - local_pos) > 60:
                      self._connected_timeline_player.setPosition(local_pos)
 
         self._apply_global_state_to_preview()

@@ -11,3 +11,9 @@ text_operation/
 timing/
 transformations/
 video_processing_modules_usage.md
+
+
+
+#adapter Files
+ui_components/
+FilterBridge.py

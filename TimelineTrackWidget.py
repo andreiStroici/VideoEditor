@@ -55,6 +55,23 @@ class TimelineTrackWidget(QWidget):
 
         self._update_dimensions()
 
+    def update_clip_path_and_filters(self, idx, new_path, new_duration, filter_data):
+        if 0 <= idx < len(self.clips):
+            clip = self.clips[idx]
+            if 'original_path' not in clip:
+                clip['original_path'] = clip['path']
+            
+            clip['path'] = new_path
+            clip['filters'] = filter_data
+            if new_duration > 0:
+                clip['duration'] = new_duration
+            
+            clip['name'] = "[FX] " + os.path.basename(clip['original_path'])
+            
+            self._rebuild_track_with_gaps()
+            self.track_changed.emit()
+            self.update()
+
     def showEvent(self, event):
         super().showEvent(event)
         self._rebuild_track_with_gaps(force_duration_to=self.duration_ms)
@@ -286,7 +303,6 @@ class TimelineTrackWidget(QWidget):
         return best_start, snap_indicator_x
 
     def mousePressEvent(self, event):
-        self.mouse_pressed_signal.emit() 
         if event.button() == Qt.LeftButton:
             self._drag_start_pos = event.pos() 
             x = event.x()
@@ -295,6 +311,7 @@ class TimelineTrackWidget(QWidget):
 
             if abs(x - self.ms_to_px(self.playhead_pos_ms)) <= 10:
                 self._dragging_playhead = True
+                self.mouse_pressed_signal.emit()
                 return 
 
             self._dragging_playhead = False
@@ -302,7 +319,6 @@ class TimelineTrackWidget(QWidget):
             track_y_start = 40
             track_y_end = 100
             clicked_clip_idx = -1
-            
             if track_y_start <= y <= track_y_end:
                 for i in range(len(self.clips)-1, -1, -1):
                     c = self.clips[i]
@@ -312,7 +328,7 @@ class TimelineTrackWidget(QWidget):
                         if c_start <= x <= c_start + c_w:
                             clicked_clip_idx = i
                             break
-            
+
             if clicked_clip_idx != -1:
                 self.selected_index = clicked_clip_idx
             else:
@@ -321,6 +337,7 @@ class TimelineTrackWidget(QWidget):
                 self.seek_request.emit(ms)
             
             self.update()
+            self.mouse_pressed_signal.emit()
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.LeftButton and self._dragging_playhead:

@@ -10,11 +10,13 @@ from PySide6.QtGui import QIcon, QKeySequence, QCursor, QShortcut
 
 from TimelineTrackWidget import TimelineTrackWidget
 from FileImporterWorker import FileImporterWorker
+from FilterBridge import FilterBridge
 
 class TimelineAndTracks(QWidget):
     seek_request = Signal(int)
     timeline_structure_changed = Signal() 
     track_clicked_signal = Signal()
+    clip_selected_for_filters = Signal(dict)
     
     IMG_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
     VID_EXT = {'.mp4', '.mov', '.avi', '.mkv'}
@@ -89,11 +91,19 @@ class TimelineAndTracks(QWidget):
         self.zoom_in_kp_shortcut.activated.connect(lambda: self._perform_zoom(1))
         self.zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
         self.zoom_out_shortcut.activated.connect(lambda: self._perform_zoom(-1))
+        
         self.add_new_track()
+        
         self.add_tracks_button.clicked.connect(lambda: self.add_new_track(insert_index=-1))
         self.cut_button.clicked.connect(self._on_cut_clicked)
-
         self.align_tracks_button.clicked.connect(self._on_align_tracks_clicked)
+
+        self.filter_bridge = FilterBridge(self.tracks_cache_dir)
+        self.filter_bridge.processing_finished.connect(self._on_filter_processing_done)
+        self.filter_bridge.processing_error.connect(self._on_filter_error)
+        
+        self.processing_dialog = None
+        self.active_clip_indices = (None, None) 
 
     def eventFilter(self, source, event):
         if source == self.scroll_area.viewport() and event.type() == QEvent.Wheel:
@@ -129,6 +139,8 @@ class TimelineAndTracks(QWidget):
         
         new_track.mouse_pressed_signal.connect(lambda: self.set_active_track(new_track))
         new_track.mouse_pressed_signal.connect(self.track_clicked_signal.emit)
+        new_track.mouse_pressed_signal.connect(self._on_track_clicked_internal)
+
         new_track.seek_request.connect(self.seek_request.emit)
         new_track.scroll_request.connect(self._handle_auto_scroll)
         
@@ -149,6 +161,78 @@ class TimelineAndTracks(QWidget):
         self._sync_all_tracks_duration()
         self.set_global_playhead(current_pos)
         return new_track
+
+    def _on_track_clicked_internal(self):
+        track = self.get_active_track()
+        if not track: 
+            self.clip_selected_for_filters.emit({})
+            return
+        
+        idx = track.selected_index
+        if idx != -1 and idx < len(track.clips):
+            clip = track.clips[idx]
+            if not clip.get('is_auto_gap', False):
+                path_to_probe = clip.get('original_path', clip['path'])
+                w, h = self.filter_bridge.get_video_dimensions(clip['path'])
+                media_type = 'video'
+                
+                if clip.get('is_audio_proxy', False):
+                    media_type = 'audio'
+                else:
+                    _, ext = os.path.splitext(path_to_probe)
+                    ext = ext.lower()
+                    if ext in self.AUD_EXT:
+                        media_type = 'audio'
+                    elif ext in self.IMG_EXT:
+                        media_type = 'image'
+
+                clip_data_with_meta = clip.copy()
+                clip_data_with_meta['resolution'] = (w, h)
+                clip_data_with_meta['media_type'] = media_type
+                
+                self.clip_selected_for_filters.emit(clip_data_with_meta)
+            else:
+                self.clip_selected_for_filters.emit({})
+        else:
+            self.clip_selected_for_filters.emit({})
+
+    def handle_apply_filters(self, filter_stack):
+        track = self.get_active_track()
+        if not track: return
+        
+        idx = track.selected_index
+        if idx == -1 or idx >= len(track.clips): return 
+        
+        clip = track.clips[idx]
+        if clip.get('is_auto_gap', False): return
+
+        if 'original_path' not in clip:
+            clip['original_path'] = clip['path']
+        
+        original_path = clip['original_path']
+        self.active_clip_indices = (track, idx)
+
+        self.processing_dialog = QProgressDialog("Applying filters (please wait)...", None, 0, 0, self)
+        self.processing_dialog.setWindowModality(Qt.WindowModal)
+        self.processing_dialog.setCancelButton(None)
+        self.processing_dialog.show()
+
+        QTimer.singleShot(100, lambda: self.filter_bridge.process_clip(original_path, filter_stack))
+
+    def _on_filter_processing_done(self, new_path, filter_data):
+        if self.processing_dialog:
+            self.processing_dialog.close()
+        
+        track, idx = self.active_clip_indices
+        if track and idx is not None:
+            if idx < len(track.clips):
+                track.update_clip_path_and_filters(idx, new_path, filter_data)
+                self.timeline_structure_changed.emit()
+
+    def _on_filter_error(self, msg):
+        if self.processing_dialog:
+            self.processing_dialog.close()
+        print(f"Filter Error: {msg}")
 
     def _perform_zoom(self, direction):
         if not self.track_widgets: return
@@ -406,11 +490,13 @@ class TimelineAndTracks(QWidget):
             
         clip_data = {
             'path': path,
+            'original_path': path,
             'start': int(start_ms),
             'duration': int(duration_ms),
             'name': os.path.basename(path),
             'color': color,
             'is_auto_gap': False,
-            'is_audio_proxy': is_audio_proxy 
+            'is_audio_proxy': is_audio_proxy,
+            'filters': {}
         }
         track_widget.insert_clip_physically(clip_data)
