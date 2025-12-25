@@ -653,12 +653,16 @@ class TimelineTrackWidget(QWidget):
             try:
                 subprocess.run(cmd1, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 subprocess.run(cmd2, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
                 part1 = target_clip.copy()
                 part1['path'] = part1_path
+                part1['original_path'] = part1_path
+
                 part1['duration'] = split_point_local_ms 
                 
                 part2 = target_clip.copy()
                 part2['path'] = part2_path
+                part2['original_path'] = part2_path
                 part2['start'] = split_point_global
                 part2['duration'] = original_duration - split_point_local_ms
                 part2['name'] = base_name + "_p2"
