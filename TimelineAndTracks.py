@@ -226,7 +226,8 @@ class TimelineAndTracks(QWidget):
         track, idx = self.active_clip_indices
         if track and idx is not None:
             if idx < len(track.clips):
-                track.update_clip_path_and_filters(idx, new_path, filter_data)
+                new_duration_ms = self._get_file_duration(new_path)
+                track.update_clip_path_and_filters(idx, new_path, new_duration_ms, filter_data)
                 self.timeline_structure_changed.emit()
 
     def _on_filter_error(self, msg):
