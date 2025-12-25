@@ -1,16 +1,15 @@
 import sys
 import os
-import hashlib
 import subprocess
-import time
-import shutil
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QSlider, QScrollArea
+    QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QSlider, QScrollArea, 
+    QProgressDialog, QApplication
 )
-from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer
+from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer, QObject
 from PySide6.QtGui import QIcon, QKeySequence, QCursor, QShortcut
 
 from TimelineTrackWidget import TimelineTrackWidget
+from FileImporterWorker import FileImporterWorker
 
 class TimelineAndTracks(QWidget):
     seek_request = Signal(int)
@@ -35,7 +34,6 @@ class TimelineAndTracks(QWidget):
         self.timeline_layout.setSpacing(SPACING)
         self.timeline_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- TOOLBAR ---
         self.timeline_topbar = QHBoxLayout()
         self.timeline_topbar.setSpacing(SPACING)
 
@@ -60,7 +58,6 @@ class TimelineAndTracks(QWidget):
         self.timeline_topbar.addWidget(self.time_slider)
         self.timeline_layout.addLayout(self.timeline_topbar)
 
-        # --- SCROLL AREA ---
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFocusPolicy(Qt.NoFocus) 
@@ -82,6 +79,10 @@ class TimelineAndTracks(QWidget):
 
         self.track_widgets = []
         self.active_track = None
+        
+        self.import_worker = None
+        self.loading_dialog = None
+
         self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
         self.zoom_in_shortcut.activated.connect(lambda: self._perform_zoom(1))
         self.zoom_in_kp_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
@@ -273,41 +274,44 @@ class TimelineAndTracks(QWidget):
             if target < 0: target = 0
             self.scroll_area.horizontalScrollBar().setValue(target)
 
-    def _cache_file(self, file_path):
-        if not os.path.exists(file_path): return file_path
-        base_name = os.path.basename(file_path)
-        name, ext = os.path.splitext(base_name)
-        file_hash = hashlib.md5(f"{file_path}_{time.time()}".encode()).hexdigest()[:8]
-        new_name = f"{name}_{file_hash}{ext}"
-        new_path = os.path.join(self.tracks_cache_dir, new_name)
-        try:
-            shutil.copy2(file_path, new_path)
-            return new_path
-        except Exception as e:
-            print(f"Cache Error: {e}")
-            return file_path
-
     def insert_media_at_playhead(self, file_path):
         if not os.path.exists(file_path): return -1
-        
         active_track = self.get_active_track()
         if not active_track: return -1
 
-        cached_path = self._cache_file(file_path)
+        self.loading_dialog = QProgressDialog("Processing Media (Converting/Caching)...", None, 0, 0, self)
+        self.loading_dialog.setWindowTitle("Please Wait")
+        self.loading_dialog.setWindowModality(Qt.WindowModal)
+        self.loading_dialog.setCancelButton(None) 
+        self.loading_dialog.setMinimumDuration(0)
+        self.loading_dialog.show()
+
+        self.import_worker = FileImporterWorker(file_path, self.tracks_cache_dir)
+        self.import_worker.finished_success.connect(self._on_media_processed)
+        self.import_worker.start()
+        
+        return active_track.playhead_pos_ms 
+
+    def _on_media_processed(self, original_path, cached_path):
+        if self.loading_dialog:
+            self.loading_dialog.close()
+            self.loading_dialog = None
+        
+        active_track = self.get_active_track()
+        if not active_track: return
+
         insert_duration_ms = self._get_file_duration(cached_path)
         playhead_pos = active_track.playhead_pos_ms
+        
         if active_track.is_overlapping(playhead_pos, insert_duration_ms):
             idx = self.track_widgets.index(active_track)
             new_track = self.add_new_track(insert_index=idx)
             self._add_single_clip_to_track(new_track, cached_path, playhead_pos, insert_duration_ms)
-            
         else:
             self._add_single_clip_to_track(active_track, cached_path, playhead_pos, insert_duration_ms)
 
         self.timeline_structure_changed.emit()
         self._sync_all_tracks_duration()
-        
-        return playhead_pos
 
     def _get_file_duration(self, path):
         if path.endswith(tuple(self.IMG_EXT)):
@@ -325,16 +329,25 @@ class TimelineAndTracks(QWidget):
     def _add_single_clip_to_track(self, track_widget, path, start_ms, duration_ms):
         _, ext = os.path.splitext(path)
         ext = ext.lower()
-        color = "#3a6ea5"
-        if ext in self.VID_EXT: color = "#800080"
-        elif ext in self.AUD_EXT: color = "#FFA500"
         
+        color = "#3a6ea5"
+        is_audio_proxy = False
+        
+        if path.endswith("_converted.mp4"):
+            color = "#FFA500"
+            is_audio_proxy = True
+        elif ext in self.VID_EXT:
+            color = "#800080"
+        elif ext in self.AUD_EXT:
+            color = "#FFA500" 
+            
         clip_data = {
             'path': path,
             'start': int(start_ms),
             'duration': int(duration_ms),
             'name': os.path.basename(path),
             'color': color,
-            'is_auto_gap': False
+            'is_auto_gap': False,
+            'is_audio_proxy': is_audio_proxy 
         }
         track_widget.insert_clip_physically(clip_data)

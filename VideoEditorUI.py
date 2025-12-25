@@ -54,15 +54,16 @@ class VideoEditorUI(QWidget):
         self.active_audio_players = {} 
 
         self.is_scrubbing = False 
-        
         self.global_playback_speed = 1.0  
         self.global_playing_state = False 
-        
         self.lazy_scrub_timer = QTimer()
         self.lazy_scrub_timer.setInterval(300) 
         self.lazy_scrub_timer.setSingleShot(True)
         self.lazy_scrub_timer.timeout.connect(self._perform_lazy_sync)
         self.pending_scrub_ms = -1
+        self.reverse_timer = QTimer(self)
+        self.reverse_timer.setInterval(33)
+        self.reverse_timer.timeout.connect(self._on_reverse_tick)
 
         self.seek_timer = QTimer()
         self.seek_timer.setInterval(50) 
@@ -183,9 +184,10 @@ class VideoEditorUI(QWidget):
                 self.global_playing_state = True 
                 self._apply_global_state_to_preview()
 
+
     def _apply_global_state_to_preview(self):
-        state = QMediaPlayer.PlayingState if self.global_playing_state else QMediaPlayer.PausedState
-        self.video_preview._update_play_button_icon(state)
+        target_icon_state = QMediaPlayer.PlayingState if self.global_playing_state else QMediaPlayer.PausedState
+        self.video_preview._update_play_button_icon(target_icon_state)
             
         should_mute = (self.global_playback_speed < 0)
         current_pos = self.timeline_container.time_slider.value()
@@ -196,25 +198,48 @@ class VideoEditorUI(QWidget):
             
             current_tab._logical_rate = self.global_playback_speed
             
-            if isinstance(current_tab.player, QMediaPlayer):
-                current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
-            elif isinstance(current_tab.player, ImagePlayer):
-                current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
-            
             if self.global_playback_speed < 0:
                 if self.global_playing_state:
-                    if not current_tab.reverse_timer.isActive():
-                        current_tab.reverse_timer.start()
+                    if not self.reverse_timer.isActive():
+                        self.reverse_timer.start()
+                    current_tab.player.blockSignals(True)
                     current_tab.player.pause() 
+                    current_tab.player.blockSignals(False)
                 else:
-                    current_tab.reverse_timer.stop()
+                    self.reverse_timer.stop()
                     current_tab.player.pause()
             else:
-                current_tab.reverse_timer.stop()
+                self.reverse_timer.stop()
+                if isinstance(current_tab.player, QMediaPlayer):
+                    current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
+                elif isinstance(current_tab.player, ImagePlayer):
+                    current_tab.player.setPlaybackRate(abs(self.global_playback_speed))
+                
                 if self.global_playing_state:
                     current_tab.player.play()
                 else:
                     current_tab.player.pause()
+
+    def _on_reverse_tick(self):
+        slider = self.timeline_container.time_slider
+        current_val = slider.value()
+        step = int(33 * abs(self.global_playback_speed))
+        new_val = current_val - step
+        
+        if new_val <= 0:
+            new_val = 0
+            self.global_playing_state = False
+            self._apply_global_state_to_preview()
+        slider.blockSignals(True)
+        slider.setValue(new_val)
+        slider.blockSignals(False)
+        self.timeline_container.set_global_playhead(new_val)
+        self._synchronize_preview_with_timeline(new_val)
+        
+        if self.auto_scroll_active:
+             self.timeline_container.ensure_cursor_visible(self.timeline_container.track_widgets[0].ms_to_px(new_val))
+             
+        self._update_audio_mixer(new_val, was_playing=False, mute=True)
 
     def closeEvent(self, event):
         if self.export_worker and self.export_worker.isRunning():
@@ -384,6 +409,8 @@ class VideoEditorUI(QWidget):
         if self.is_scrubbing: return
         ms = int(ms)
         if self.timeline_container.time_slider.isSliderDown(): return
+        if self.global_playing_state and self.global_playback_speed < 0:
+            return
 
         slider = self.timeline_container.time_slider
         if not self.timeline_container.track_widgets: return
@@ -391,23 +418,6 @@ class VideoEditorUI(QWidget):
         approx_global_pos = self.timeline_container.track_widgets[0].playhead_pos_ms
         current_widget = self.video_preview.preview_tabs.widget(0)
         should_mute = (self.global_playback_speed < 0) or (not self.global_playing_state)
-        if self.global_playing_state and self.global_playback_speed < 0:
-            local_pos = 0
-            if hasattr(current_widget, 'player') and current_widget.player:
-                local_pos = current_widget.player.position()
-
-            if local_pos < 100 and slider.value() > 0: 
-                new_global_pos = slider.value() - step_back
-                if new_global_pos < 0: new_global_pos = 0
-                slider.blockSignals(True)
-                slider.setValue(new_global_pos)
-                slider.blockSignals(False)
-                self.timeline_container.set_global_playhead(new_global_pos)
-                
-                self._synchronize_preview_with_timeline(new_global_pos)
-                self._update_audio_mixer(new_global_pos, was_playing=self.global_playing_state, mute=should_mute)
-                return 
-
         max_slider_val = slider.maximum()
         if approx_global_pos >= max_slider_val - 50 and self.global_playback_speed > 0:
              if self.global_playing_state:
