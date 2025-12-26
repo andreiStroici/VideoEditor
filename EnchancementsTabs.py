@@ -14,7 +14,10 @@ try:
         ScaleWidget,
         TransposeWidget,
         FadeInOutWidget,
-        TextOperationWidget
+        TextOperationWidget,
+        TempoWidget,
+        KernelFilteringWidget,
+        EdgeDetectWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -75,7 +78,20 @@ class EnchancementsTabs(QWidget):
         tab_layout.addWidget(scroll)
         
         self.tabs.addTab(self.transforms_tab, "Transforms")
-        self.tabs.addTab(QWidget(), "Filters")
+        
+        self.filters_tab = QWidget()
+        self.filters_layout = QVBoxLayout(self.filters_tab)
+        self.tempo_ui = TempoWidget()
+        self.kernel_ui = KernelFilteringWidget()
+        self.edge_ui = EdgeDetectWidget()
+        
+        self.filters_layout.addWidget(self.tempo_ui)
+        self.filters_layout.addWidget(self.kernel_ui)
+        self.filters_layout.addWidget(self.edge_ui)
+        
+        self.filters_layout.addStretch()
+        
+        self.tabs.addTab(self.filters_tab, "Filters")
         self.tabs.addTab(QWidget(), "Timing")
         self.tabs.addTab(QWidget(), "Text")
         self.tabs.addTab(QWidget(), "Composition")
@@ -89,7 +105,6 @@ class EnchancementsTabs(QWidget):
         self.text_ui = TextOperationWidget()
         self.text_layout.addWidget(self.text_ui)
         self.text_layout.addStretch()
-
 
         layout.addWidget(self.tabs)
         self.tabs.setEnabled(False)
@@ -180,12 +195,34 @@ class EnchancementsTabs(QWidget):
             self.text_ui.status_label.setText("(Video Only)")
         else:
             self.text_ui.status_label.setText("")
-        
+
+        self.tempo_ui.setEnabled(is_video)
+        if not is_video:
+            self.tempo_ui.enable_cb.setChecked(False)
+            self.tempo_ui.status_label.setText("(Video Only)")
+        else:
+            self.tempo_ui.status_label.setText("")
+
+        self.kernel_ui.setEnabled(is_visual)
+        if not is_visual:
+            self.kernel_ui.enable_cb.setChecked(False)
+            self.kernel_ui.status_label.setText("(Visual Only)")
+        else:
+            self.kernel_ui.status_label.setText("")
+
+        self.edge_ui.setEnabled(is_video)
+        if not is_video:
+            self.edge_ui.enable_cb.setChecked(False)
+            self.edge_ui.status_label.setText("(Video Only)")
+        else:
+            self.edge_ui.status_label.setText("")
+
         filters = clip_data.get('filters', {})
         transforms = filters.get('Transforms', {}).get('Video', {})
         timing_filters = filters.get('Timing', {}).get('Video', {})
         text_ops = filters.get('Text operation', {}).get('Video', {})
-        
+        filters_ops = filters.get('Filters', {}).get('Video', {})
+
         self.fps_ui.set_data(transforms.get('Change FPS', {}))
         self.speed_ui.set_data(transforms.get('Playback speed', {}))
         self.crop_ui.set_data(transforms.get('Crop', {}), clip_data.get('resolution', (0,0)))
@@ -195,6 +232,9 @@ class EnchancementsTabs(QWidget):
         self.transpose_ui.set_data(transforms.get('Transpose', {}))
         self.fade_ui.set_data(timing_filters.get('Fade in', {}))
         self.text_ui.set_data(text_ops.get('Text', {}))
+        self.tempo_ui.set_data(filters_ops.get('Tempo', {}))
+        self.kernel_ui.set_data(filters_ops.get('Kernel Filtering', {}))
+        self.edge_ui.set_data(filters_ops.get('Edge Detect', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
@@ -206,6 +246,9 @@ class EnchancementsTabs(QWidget):
         transpose_values = self.transpose_ui.get_data()
         fade_values = self.fade_ui.get_data()
         text_values = self.text_ui.get_data()
+        tempo_values = self.tempo_ui.get_data()
+        kernel_values = self.kernel_ui.get_data()
+        edge_values = self.edge_ui.get_data()
 
         filter_stack = {
             'Transforms': {
@@ -227,6 +270,13 @@ class EnchancementsTabs(QWidget):
             'Text operation': {
                 'Video': {
                     'Text': text_values
+                }
+            },
+            'Filters': {
+                'Video': {
+                    'Tempo': tempo_values,
+                    'Kernel Filtering': kernel_values,
+                    'Edge Detect': edge_values
                 }
             }
         }
