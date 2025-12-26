@@ -22,8 +22,10 @@ try:
         VolumeWidget,
         NoiseReductionWidget,
         OverlayWidget,
-        BlendWidget
-
+        BlendWidget,
+        EchoWidget,
+        DelayWidget,
+        ChorusWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -121,9 +123,15 @@ class EnchancementsTabs(QWidget):
         
         self.overlay_ui = OverlayWidget()
         self.blend_ui = BlendWidget()
+        self.echo_ui = EchoWidget()
+        self.delay_ui = DelayWidget()
+        self.chorus_ui = ChorusWidget()
         
         self.comp_layout.addWidget(self.overlay_ui)
         self.comp_layout.addWidget(self.blend_ui)
+        self.comp_layout.addWidget(self.echo_ui)
+        self.comp_layout.addWidget(self.delay_ui)
+        self.comp_layout.addWidget(self.chorus_ui)
         self.comp_layout.addStretch()
         
         comp_scroll.setWidget(comp_scroll_content)
@@ -288,6 +296,26 @@ class EnchancementsTabs(QWidget):
             self.blend_ui.status_label.setText("(Visual Only)")
         else:
             self.blend_ui.status_label.setText("")
+
+        self.echo_ui.setEnabled(is_time_based)
+        if not is_time_based:
+            self.echo_ui.enable_cb.setChecked(False)
+            self.echo_ui.status_label.setText("(Audio/Video Only)")
+        else:
+            self.echo_ui.status_label.setText("")
+
+        self.delay_ui.setEnabled(is_time_based)
+        self.chorus_ui.setEnabled(is_time_based)
+        
+        if not is_time_based:
+            self.delay_ui.enable_cb.setChecked(False)
+            self.delay_ui.status_label.setText("(Audio/Video Only)")
+            self.chorus_ui.enable_cb.setChecked(False)
+            self.chorus_ui.status_label.setText("(Audio/Video Only)")
+        else:
+            self.delay_ui.status_label.setText("")
+            self.chorus_ui.status_label.setText("")
+
         overlays_list = clip_data.get('available_overlays', [])
         self.overlay_ui.update_overlay_list(overlays_list)
         self.blend_ui.update_blend_list(overlays_list)
@@ -298,6 +326,7 @@ class EnchancementsTabs(QWidget):
         text_ops = filters.get('Text operation', {}).get('Video', {})
         filters_ops = filters.get('Filters', {}).get('Video', {})
         comp_ops = filters.get('Composition', {}).get('Video', {})
+        comp_audio_ops = filters.get('Composition', {}).get('Audio', {})
 
         self.fps_ui.set_data(transforms.get('Change FPS', {}))
         self.speed_ui.set_data(transforms.get('Playback speed', {}))
@@ -316,6 +345,9 @@ class EnchancementsTabs(QWidget):
         self.noise_ui.set_data(filters_ops.get('Noise Reduction', {}))
         self.overlay_ui.set_data(comp_ops.get('Overlay', {}))
         self.blend_ui.set_data(comp_ops.get('Blend videos', {}))
+        self.echo_ui.set_data(comp_audio_ops.get('Echo', {}))
+        self.delay_ui.set_data(comp_audio_ops.get('Delay', {}))
+        self.chorus_ui.set_data(comp_audio_ops.get('Chorus', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
@@ -335,6 +367,9 @@ class EnchancementsTabs(QWidget):
         noise_values = self.noise_ui.get_data()
         overlay_values = self.overlay_ui.get_data()
         blend_values = self.blend_ui.get_data()
+        echo_values = self.echo_ui.get_data()
+        delay_values = self.delay_ui.get_data()
+        chorus_values = self.chorus_ui.get_data()
 
         filter_stack = {
             'Transforms': {
@@ -372,6 +407,11 @@ class EnchancementsTabs(QWidget):
                 'Video': {
                     'Overlay': overlay_values,
                     'Blend videos': blend_values
+                },
+                'Audio': {
+                    'Echo': echo_values,
+                    'Delay': delay_values,
+                    'Chorus': chorus_values
                 }
             }
         }
