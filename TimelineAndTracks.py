@@ -204,7 +204,6 @@ class TimelineAndTracks(QWidget):
                                 })
                 
                 clip_data_with_meta['available_overlays'] = available_overlays
-                # End OF Block
                 
                 self.clip_selected_for_filters.emit(clip_data_with_meta)
             else:
@@ -497,7 +496,8 @@ class TimelineAndTracks(QWidget):
         color = "#3a6ea5"
         is_audio_proxy = False
         
-        if path.endswith("_converted.mp4"):
+
+        if "_converted.mov" in path or "_converted.mp4" in path: 
             color = "#FFA500"
             is_audio_proxy = True
         elif ext in self.VID_EXT:

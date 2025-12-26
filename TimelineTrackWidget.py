@@ -60,11 +60,19 @@ class TimelineTrackWidget(QWidget):
             clip = self.clips[idx]
             if 'original_path' not in clip:
                 clip['original_path'] = clip['path']
+
+            orig_path = clip.get('original_path', clip['path'])
+            _, ext = os.path.splitext(orig_path)
+            was_image = ext.lower() in {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
             
             clip['path'] = new_path
             clip['filters'] = filter_data
+            
             if new_duration > 0:
-                clip['duration'] = new_duration
+                if was_image:
+                    clip['duration'] = min(clip['duration'], new_duration)
+                else:
+                    clip['duration'] = new_duration
             
             clip['name'] = "[FX] " + os.path.basename(clip['original_path'])
             

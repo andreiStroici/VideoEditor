@@ -24,21 +24,16 @@ class ExportWorker(QThread):
             
             final_video_silent = os.path.join(self.temp_render_dir, "final_silent.mp4")
             final_audio_mixed = os.path.join(self.temp_render_dir, "final_mixed.aac")
-            print("--- START FLATTENING ---")
             render_segments = self._calculate_flattened_timeline()
             total_segments = len(render_segments)
             video_chunks_list = []
-
             for i, segment in enumerate(render_segments):
                 if self.is_cancelled: return
                 self.progress_update.emit(i, f"Rendering Visual Segment {i+1}/{total_segments}")
                 
                 chunk_name = f"v_chunk_{i:03d}.mp4"
                 chunk_path = os.path.join(video_parts_dir, chunk_name)
-                
-                # Debug info
-                print(f"Segment {i}: {segment['duration_ms']}ms | Source: {segment['path']} | StartInSrc: {segment['source_start_ms']}")
-
+                print(f"Segment {i}: {segment['duration_ms']}ms | Source: {segment['path']}")
                 self._render_video_segment(segment, chunk_path)
                 
                 safe_path = chunk_path.replace("\\", "/")
@@ -54,6 +49,7 @@ class ExportWorker(QThread):
                 shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
 
+
             self.progress_update.emit(total_segments + 1, "Mixing Audio Layers...")
             
             audio_inputs = []
@@ -64,8 +60,9 @@ class ExportWorker(QThread):
                 for clip in track.clips:
                     if clip.get('is_auto_gap', False): continue
                     path = clip['path']
+
                     if path.lower().endswith(tuple(self.img_exts)): continue
-                    
+
                     start_ms = clip['start']
                     audio_inputs.extend(['-i', path])
                     filter_complex_parts.append(f"[{input_idx}:a]adelay={start_ms}|{start_ms}[a{input_idx}]")
@@ -84,11 +81,12 @@ class ExportWorker(QThread):
                     *audio_inputs,
                     '-filter_complex', full_filter,
                     '-map', '[aout]',
-                    '-vn', 
+                    '-vn',
                     '-c:a', 'aac', '-b:a', '192k',
                     final_audio_mixed
                 ]
                 subprocess.run(cmd_audio, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
             self.progress_update.emit(total_segments + 2, "Final Muxing...")
             
             if has_audio:
@@ -123,12 +121,15 @@ class ExportWorker(QThread):
 
         for track_idx, track in enumerate(self.tracks):
             for clip in track.clips:
+                path = clip['path']
+                is_audio_file = path.lower().endswith(('.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a'))
+                is_proxy_audio = "_converted.mov" in path or "_converted.mp4" in path
+                
+                if is_audio_file or is_proxy_audio:
+                    continue
+
                 cut_points.add(clip['start'])
                 cut_points.add(clip['start'] + clip['duration'])
-                
-                path = clip['path']
-                if path.lower().endswith(('.mp3', '.wav', '.flac')):
-                    continue
                 
                 visual_clips_map.append({
                     'track_idx': track_idx,
@@ -144,17 +145,14 @@ class ExportWorker(QThread):
             t_start = sorted_points[i]
             t_end = sorted_points[i+1]
             duration = t_end - t_start
-            
             if duration <= 0: continue
-            
             winner_clip_data = None
-            
             candidates = []
             for item in visual_clips_map:
                 if item['start'] <= t_start and item['end'] >= t_end:
                     candidates.append(item)
+            candidates.sort(key=lambda x: x['track_idx']) 
             
-            candidates.sort(key=lambda x: x['track_idx'])
             for cand in candidates:
                 clip_info = cand['data']
                 if not clip_info.get('is_auto_gap', False):
@@ -176,9 +174,7 @@ class ExportWorker(QThread):
                     'duration_ms': duration,
                     'is_gap': True
                 }
-                
             segments.append(seg)
-            
         return segments
 
     def _render_video_segment(self, segment, output_path):
@@ -186,9 +182,7 @@ class ExportWorker(QThread):
         start_sec = segment['source_start_ms'] / 1000.0
         path = segment['path']
         is_gap = segment['is_gap']
-        
         vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
-        
         cmd = ""
         if is_gap or not path:
              cmd = (

@@ -1,10 +1,11 @@
 import sys
 import os
 import time
-
-from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget, QProgressDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QGridLayout, QWidget, QApplication, QListWidget, 
+    QProgressDialog, QMessageBox, QFileDialog
+)
 from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
-
 
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -29,7 +30,7 @@ class VideoEditorUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Video Editor Professional - Final Stable")
+        self.setWindowTitle("Video Editor")
         self.showMaximized()
 
         SPACING = 8
@@ -146,6 +147,32 @@ class VideoEditorUI(QWidget):
         if not original_path:
             original_path = selected_clip['path']
 
+        comp_video = filter_stack.get('Composition', {}).get('Video', {})
+        overlay_data = comp_video.get('Overlay', {})
+        blend_data = comp_video.get('Blend videos', {})
+
+        target_secondary_path = None
+        
+        if overlay_data.get('enabled', False):
+            target_secondary_path = overlay_data.get('overlay_path')
+        elif blend_data.get('enabled', False):
+            target_secondary_path = blend_data.get('blend_path')
+
+        if target_secondary_path and os.path.exists(target_secondary_path):
+            main_w, main_h = self.filter_bridge.get_video_dimensions(original_path)
+            sec_w, sec_h = self.filter_bridge.get_video_dimensions(target_secondary_path)
+
+            if main_w != sec_w or main_h != sec_h:
+                QMessageBox.warning(
+                    self, 
+                    "Resolution Mismatch", 
+                    f"Filrele de Compozitie (Overlay/Blend) necesita ca ambele video-uri sa aiba aceeasi rezolutie!\n\n"
+                    f"Clip Principal: {main_w}x{main_h}\n"
+                    f"Clip Secundar: {sec_w}x{sec_h}\n\n"
+                    "Te rog sa redimensionezi clipurile inainte de a aplica acest efect."
+                )
+                return 
+
         self.filter_loading_dialog = QProgressDialog("Applying filters... Please wait.", None, 0, 0, self)
         self.filter_loading_dialog.setWindowTitle("Processing Video")
         self.filter_loading_dialog.setWindowModality(Qt.WindowModal)
@@ -176,6 +203,21 @@ class VideoEditorUI(QWidget):
             self.filter_loading_dialog.close()
             self.filter_loading_dialog = None
         QMessageBox.critical(self, "Processing Error", f"An error occurred:\n{error_msg}")
+
+    def _force_reset_audio_mixer(self):
+        for key, player in list(self.active_audio_players.items()):
+            try:
+                if player.playbackState() != QMediaPlayer.StoppedState:
+                    player.stop()
+                if player.audioOutput():
+                    player.audioOutput().setVolume(0)
+                player.setSource(QUrl()) 
+                if hasattr(player, 'audio_ref'):
+                    player.audio_ref.deleteLater()
+                player.deleteLater()
+            except: 
+                pass
+        self.active_audio_players.clear()
 
     def _on_timeline_structure_changed(self):
         self._refresh_slider()
@@ -326,12 +368,7 @@ class VideoEditorUI(QWidget):
             self.export_worker.cancel()
             self.export_worker.wait()
 
-        for key, player in self.active_audio_players.items():
-            try:
-                player.stop()
-                player.setSource(QUrl())
-            except: pass
-        self.active_audio_players.clear()
+        self._force_reset_audio_mixer()
         
         count = self.video_preview.preview_tabs.count()
         for i in range(count):

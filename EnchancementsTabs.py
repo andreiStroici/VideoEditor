@@ -195,9 +195,13 @@ class EnchancementsTabs(QWidget):
         else:
             self.speed_ui.status_label.setText("")
 
-        self.crop_ui.setEnabled(is_visual)
-        if not is_visual:
+        self.crop_ui.setEnabled(is_video)
+        if not is_video:
              self.crop_ui.enable_cb.setChecked(False)
+             self.crop_ui.status_label.setText("(Video Only)")
+             self.crop_ui.status_label.setStyleSheet("color: red; font-size: 10px; font-weight: bold;")
+        else:
+             self.crop_ui.status_label.setStyleSheet("color: gray; font-size: 11px;")
 
         self.padding_ui.setEnabled(is_visual)
         if not is_visual:
@@ -283,17 +287,17 @@ class EnchancementsTabs(QWidget):
         else:
              self.noise_ui.status_label.setText("")
         
-        self.overlay_ui.setEnabled(is_visual)
-        if not is_visual:
+        self.overlay_ui.setEnabled(is_video)
+        if not is_video:
             self.overlay_ui.enable_cb.setChecked(False)
-            self.overlay_ui.status_label.setText("(Visual Only)")
+            self.overlay_ui.status_label.setText("(Video Only)")
         else:
             self.overlay_ui.status_label.setText("")
             
-        self.blend_ui.setEnabled(is_visual)
-        if not is_visual:
+        self.blend_ui.setEnabled(is_video)
+        if not is_video:
             self.blend_ui.enable_cb.setChecked(False)
-            self.blend_ui.status_label.setText("(Visual Only)")
+            self.blend_ui.status_label.setText("(Video Only)")
         else:
             self.blend_ui.status_label.setText("")
 
