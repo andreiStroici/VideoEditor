@@ -10,7 +10,11 @@ try:
         ChangeFPSWidget, 
         PaddingWidget, 
         PlaybackSpeedWidget,
-        RotateWidget
+        RotateWidget,
+        ScaleWidget,
+        TransposeWidget,
+        FadeInOutWidget,
+        TextOperationWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -54,12 +58,16 @@ class EnchancementsTabs(QWidget):
         self.crop_ui = CropWidget()
         self.padding_ui = PaddingWidget()
         self.rotate_ui = RotateWidget()
+        self.scale_ui = ScaleWidget()
+        self.transpose_ui = TransposeWidget()
         
         trans_layout.addWidget(self.fps_ui)
         trans_layout.addWidget(self.speed_ui)
         trans_layout.addWidget(self.crop_ui)
         trans_layout.addWidget(self.padding_ui)
         trans_layout.addWidget(self.rotate_ui)
+        trans_layout.addWidget(self.scale_ui)
+        trans_layout.addWidget(self.transpose_ui)
         trans_layout.addStretch()
 
         scroll.setWidget(scroll_content)
@@ -71,6 +79,17 @@ class EnchancementsTabs(QWidget):
         self.tabs.addTab(QWidget(), "Timing")
         self.tabs.addTab(QWidget(), "Text")
         self.tabs.addTab(QWidget(), "Composition")
+
+        self.timing_layout = QVBoxLayout(self.tabs.widget(2))
+        self.fade_ui = FadeInOutWidget()
+        self.timing_layout.addWidget(self.fade_ui)
+        self.timing_layout.addStretch()
+
+        self.text_layout = QVBoxLayout(self.tabs.widget(3))
+        self.text_ui = TextOperationWidget()
+        self.text_layout.addWidget(self.text_ui)
+        self.text_layout.addStretch()
+
 
         layout.addWidget(self.tabs)
         self.tabs.setEnabled(False)
@@ -134,14 +153,48 @@ class EnchancementsTabs(QWidget):
         else:
             self.rotate_ui.status_label.setText("")
 
+        self.scale_ui.setEnabled(is_visual)
+        if not is_visual:
+            self.scale_ui.enable_cb.setChecked(False)
+            self.scale_ui.status_label.setText("(Not supported for Audio)")
+        else:
+            self.scale_ui.status_label.setText("")
+
+        self.transpose_ui.setEnabled(is_visual)
+        if not is_visual:
+            self.transpose_ui.enable_cb.setChecked(False)
+            self.transpose_ui.status_label.setText("(Not supported for Audio)")
+        else:
+            self.transpose_ui.status_label.setText("")
+
+        self.fade_ui.setEnabled(is_video)
+        if not is_video:
+            self.fade_ui.enable_cb.setChecked(False)
+            self.fade_ui.status_label.setText("(Video Only)")
+        else:
+            self.fade_ui.status_label.setText("")
+
+        self.text_ui.setEnabled(is_video)
+        if not is_video:
+            self.text_ui.enable_cb.setChecked(False)
+            self.text_ui.status_label.setText("(Video Only)")
+        else:
+            self.text_ui.status_label.setText("")
+        
         filters = clip_data.get('filters', {})
         transforms = filters.get('Transforms', {}).get('Video', {})
+        timing_filters = filters.get('Timing', {}).get('Video', {})
+        text_ops = filters.get('Text operation', {}).get('Video', {})
         
         self.fps_ui.set_data(transforms.get('Change FPS', {}))
         self.speed_ui.set_data(transforms.get('Playback speed', {}))
         self.crop_ui.set_data(transforms.get('Crop', {}), clip_data.get('resolution', (0,0)))
         self.padding_ui.set_data(transforms.get('Padding', {}))
         self.rotate_ui.set_data(transforms.get('Rotate', {}))
+        self.scale_ui.set_data(transforms.get('Scale', {}))
+        self.transpose_ui.set_data(transforms.get('Transpose', {}))
+        self.fade_ui.set_data(timing_filters.get('Fade in', {}))
+        self.text_ui.set_data(text_ops.get('Text', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
@@ -149,7 +202,11 @@ class EnchancementsTabs(QWidget):
         padding_values = self.padding_ui.get_data()
         speed_values = self.speed_ui.get_data()
         rotate_values = self.rotate_ui.get_data()
-        
+        scale_values = self.scale_ui.get_data()
+        transpose_values = self.transpose_ui.get_data()
+        fade_values = self.fade_ui.get_data()
+        text_values = self.text_ui.get_data()
+
         filter_stack = {
             'Transforms': {
                 'Video': {
@@ -157,7 +214,19 @@ class EnchancementsTabs(QWidget):
                     'Playback speed': speed_values,
                     'Crop': crop_values,
                     'Padding': padding_values,
-                    'Rotate': rotate_values
+                    'Rotate': rotate_values,
+                    'Scale': scale_values,
+                    'Transpose': transpose_values
+                }
+            },
+            'Timing': {
+                'Video': {
+                    'Fade in': fade_values
+                }
+            },
+            'Text operation': {
+                'Video': {
+                    'Text': text_values
                 }
             }
         }
