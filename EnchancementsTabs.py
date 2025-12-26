@@ -18,7 +18,10 @@ try:
         TempoWidget,
         KernelFilteringWidget,
         EdgeDetectWidget,
-        BlurWidget
+        BlurWidget,
+        VolumeWidget,
+        NoiseReductionWidget
+
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -88,11 +91,15 @@ class EnchancementsTabs(QWidget):
         self.kernel_ui = KernelFilteringWidget()
         self.edge_ui = EdgeDetectWidget()
         self.blur_ui = BlurWidget()
+        self.volume_ui = VolumeWidget()
+        self.noise_ui = NoiseReductionWidget()
 
         self.filters_layout.addWidget(self.tempo_ui)
         self.filters_layout.addWidget(self.kernel_ui)
         self.filters_layout.addWidget(self.edge_ui)
         self.filters_layout.addWidget(self.blur_ui)
+        self.filters_layout.addWidget(self.volume_ui)
+        self.filters_layout.addWidget(self.noise_ui)
         self.filters_layout.addStretch()
         filters_scroll.setWidget(filters_scroll_content)
         filters_tab_layout = QVBoxLayout(self.filters_tab)
@@ -232,6 +239,20 @@ class EnchancementsTabs(QWidget):
             self.blur_ui.status_label.setText("(Video Only)")
         else:
             self.blur_ui.status_label.setText("")
+        
+        self.volume_ui.setEnabled(is_time_based)
+        if not is_time_based:
+            self.volume_ui.enable_cb.setChecked(False)
+            self.volume_ui.status_label.setText("(Audio/Video Only)")
+        else:
+            self.volume_ui.status_label.setText("")
+
+        self.noise_ui.setEnabled(is_video)
+        if not is_video:
+            self.noise_ui.enable_cb.setChecked(False)
+            self.noise_ui.status_label.setText("(Video Only)")
+        else:
+             self.noise_ui.status_label.setText("")
 
 
         filters = clip_data.get('filters', {})
@@ -253,6 +274,8 @@ class EnchancementsTabs(QWidget):
         self.kernel_ui.set_data(filters_ops.get('Kernel Filtering', {}))
         self.edge_ui.set_data(filters_ops.get('Edge Detect', {}))
         self.blur_ui.set_data(filters_ops.get('Blur', {}))
+        self.volume_ui.set_data(filters_ops.get('Volume', {}))
+        self.noise_ui.set_data(filters_ops.get('Noise Reduction', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
@@ -268,6 +291,8 @@ class EnchancementsTabs(QWidget):
         kernel_values = self.kernel_ui.get_data()
         edge_values = self.edge_ui.get_data()
         blur_values = self.blur_ui.get_data()
+        volume_values = self.volume_ui.get_data()
+        noise_values = self.noise_ui.get_data()
 
         filter_stack = {
             'Transforms': {
@@ -296,7 +321,9 @@ class EnchancementsTabs(QWidget):
                     'Tempo': tempo_values,
                     'Kernel Filtering': kernel_values,
                     'Edge Detect': edge_values,
-                    'Blur': blur_values
+                    'Blur': blur_values,
+                    'Volume': volume_values,
+                    'Noise Reduction': noise_values
                 }
             }
         }
