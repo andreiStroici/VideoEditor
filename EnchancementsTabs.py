@@ -20,8 +20,8 @@ try:
         EdgeDetectWidget,
         BlurWidget,
         VolumeWidget,
-        NoiseReductionWidget
-
+        NoiseReductionWidget,
+        OverlayWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -110,7 +110,24 @@ class EnchancementsTabs(QWidget):
 
         self.tabs.addTab(QWidget(), "Timing")
         self.tabs.addTab(QWidget(), "Text")
-        self.tabs.addTab(QWidget(), "Composition")
+
+        self.composition_tab = QWidget()
+        comp_scroll = QScrollArea()
+        comp_scroll.setWidgetResizable(True)
+        comp_scroll_content = QWidget()
+        self.comp_layout = QVBoxLayout(comp_scroll_content)
+        
+        self.overlay_ui = OverlayWidget()
+        self.comp_layout.addWidget(self.overlay_ui)
+        self.comp_layout.addStretch()
+        
+        comp_scroll.setWidget(comp_scroll_content)
+        comp_tab_layout = QVBoxLayout(self.composition_tab)
+        comp_tab_layout.setContentsMargins(0,0,0,0)
+        comp_tab_layout.addWidget(comp_scroll)
+        
+        self.tabs.addTab(self.composition_tab, "Composition")
+
 
         self.timing_layout = QVBoxLayout(self.tabs.widget(2))
         self.fade_ui = FadeInOutWidget()
@@ -253,6 +270,18 @@ class EnchancementsTabs(QWidget):
             self.noise_ui.status_label.setText("(Video Only)")
         else:
              self.noise_ui.status_label.setText("")
+        
+
+        self.overlay_ui.setEnabled(is_visual)
+        if not is_visual:
+            self.overlay_ui.enable_cb.setChecked(False)
+            self.overlay_ui.status_label.setText("(Visual Only)")
+        else:
+            self.overlay_ui.status_label.setText("")
+            
+        overlays_list = clip_data.get('available_overlays', [])
+        self.overlay_ui.update_overlay_list(overlays_list)
+
 
 
         filters = clip_data.get('filters', {})
@@ -260,6 +289,9 @@ class EnchancementsTabs(QWidget):
         timing_filters = filters.get('Timing', {}).get('Video', {})
         text_ops = filters.get('Text operation', {}).get('Video', {})
         filters_ops = filters.get('Filters', {}).get('Video', {})
+
+        comp_ops = filters.get('Composition', {}).get('Video', {})
+
 
         self.fps_ui.set_data(transforms.get('Change FPS', {}))
         self.speed_ui.set_data(transforms.get('Playback speed', {}))
@@ -277,6 +309,9 @@ class EnchancementsTabs(QWidget):
         self.volume_ui.set_data(filters_ops.get('Volume', {}))
         self.noise_ui.set_data(filters_ops.get('Noise Reduction', {}))
 
+        self.overlay_ui.set_data(comp_ops.get('Overlay', {}))
+
+
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
         fps_values = self.fps_ui.get_data()
@@ -293,6 +328,9 @@ class EnchancementsTabs(QWidget):
         blur_values = self.blur_ui.get_data()
         volume_values = self.volume_ui.get_data()
         noise_values = self.noise_ui.get_data()
+
+        overlay_values = self.overlay_ui.get_data()
+
 
         filter_stack = {
             'Transforms': {
@@ -325,6 +363,13 @@ class EnchancementsTabs(QWidget):
                     'Volume': volume_values,
                     'Noise Reduction': noise_values
                 }
+            },
+
+            'Composition': {
+                'Video': {
+                    'Overlay': overlay_values
+                }
             }
+
         }
         self.apply_filters_signal.emit(filter_stack)

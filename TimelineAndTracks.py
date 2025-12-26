@@ -190,6 +190,22 @@ class TimelineAndTracks(QWidget):
                 clip_data_with_meta['resolution'] = (w, h)
                 clip_data_with_meta['media_type'] = media_type
                 
+                available_overlays = []
+                for t in self.track_widgets:
+                    for c in t.clips:
+
+                        if c != clip and not c.get('is_auto_gap', False):
+                            c_path = c.get('original_path', c['path'])
+                            _, c_ext = os.path.splitext(c_path)
+                            if c_ext.lower() in self.VID_EXT or c_ext.lower() in self.IMG_EXT:
+                                available_overlays.append({
+                                    'name': c['name'],
+                                    'path': c_path
+                                })
+                
+                clip_data_with_meta['available_overlays'] = available_overlays
+                # End OF Block
+                
                 self.clip_selected_for_filters.emit(clip_data_with_meta)
             else:
                 self.clip_selected_for_filters.emit({})
