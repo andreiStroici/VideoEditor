@@ -2,9 +2,10 @@ import sys
 import os
 import time
 
-from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget
-from PySide6.QtWidgets import QFileDialog, QProgressDialog, QMessageBox
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtWidgets import QGridLayout, QWidget, QApplication, QListWidget, QProgressDialog, QMessageBox
+from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
+
+
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from Toolbar import Toolbar
@@ -16,10 +17,15 @@ from VideoTabContent import VideoTabContent
 from ImagePlayer import ImagePlayer
 
 from ExportWorker import ExportWorker
+try:
+    from FilterBridge import FilterBridge
+except ImportError:
+    print("FilterBridge not found.")
 
 class VideoEditorUI(QWidget):
     
     IMG_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
+    request_filter_processing = Signal(str, dict)
 
     def __init__(self):
         super().__init__()
@@ -98,10 +104,78 @@ class VideoEditorUI(QWidget):
 
         self._sync_timeline_connection(0)
 
-        self.enchancements_tabs.apply_filters_signal.connect(self.timeline_container.handle_apply_filters)
+        self.filter_thread = QThread()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        cache_dir = os.path.join(base_dir, "filesFromTracks")
+        
+        self.filter_bridge = FilterBridge(cache_dir)
+        self.filter_bridge.moveToThread(self.filter_thread)
+        
+
+        self.filter_thread.started.connect(lambda: print("Filter Thread Started"))
+        self.request_filter_processing.connect(self.filter_bridge.process_clip)
+        self.filter_bridge.processing_finished.connect(self._on_filter_finished)
+        self.filter_bridge.processing_error.connect(self._on_filter_error)
+
+        self.filter_thread.start()
+
+        self.enchancements_tabs.apply_filters_signal.connect(self._initiate_filter_processing)
+
+
         self.timeline_container.clip_selected_for_filters.connect(self.enchancements_tabs.load_clip_data)
         self.export_worker = None
         self.progress_dialog = None
+        
+        self.filter_loading_dialog = None
+
+    def _initiate_filter_processing(self, filter_stack):
+        selected_clip = None
+        active_track = self.timeline_container.get_active_track()
+        if active_track and active_track.selected_index != -1:
+            if 0 <= active_track.selected_index < len(active_track.clips):
+                selected_clip = active_track.clips[active_track.selected_index]
+
+        if not selected_clip:
+            QMessageBox.warning(self, "No Clip Selected", "Please select a clip on the timeline first.")
+            return
+
+        original_path = selected_clip.get('original_file')
+        if not original_path:
+            original_path = selected_clip.get('original_path')
+        if not original_path:
+            original_path = selected_clip['path']
+
+        self.filter_loading_dialog = QProgressDialog("Applying filters... Please wait.", None, 0, 0, self)
+        self.filter_loading_dialog.setWindowTitle("Processing Video")
+        self.filter_loading_dialog.setWindowModality(Qt.WindowModal)
+        self.filter_loading_dialog.setCancelButton(None)
+        self.filter_loading_dialog.show()
+
+        path_to_process = original_path if original_path else selected_clip['path']
+        self.request_filter_processing.emit(path_to_process, filter_stack)
+
+    def _on_filter_finished(self, new_path, filter_stack):
+        if self.filter_loading_dialog:
+            self.filter_loading_dialog.close()
+            self.filter_loading_dialog = None
+        active_track = self.timeline_container.get_active_track()
+        if active_track and active_track.selected_index != -1:
+             clip = active_track.clips[active_track.selected_index]
+             if 'original_file' not in clip:
+                 clip['original_file'] = clip.get('original_path', clip['path'])
+             new_duration = self.timeline_container._get_file_duration(new_path)
+             active_track.update_clip_path_and_filters(active_track.selected_index, new_path, new_duration, filter_stack)
+             current_pos = self.timeline_container.time_slider.value()
+             self._synchronize_preview_with_timeline(current_pos)
+             
+             print(f"Filter applied. New path: {new_path}")
+
+    def _on_filter_error(self, error_msg):
+        if self.filter_loading_dialog:
+            self.filter_loading_dialog.close()
+            self.filter_loading_dialog = None
+        QMessageBox.critical(self, "Processing Error", f"An error occurred:\n{error_msg}")
 
     def _on_timeline_structure_changed(self):
         self._refresh_slider()
@@ -244,6 +318,10 @@ class VideoEditorUI(QWidget):
         self._update_audio_mixer(new_val, was_playing=False, mute=True)
 
     def closeEvent(self, event):
+        if hasattr(self, 'filter_thread') and self.filter_thread.isRunning():
+            self.filter_thread.quit()
+            self.filter_thread.wait()
+
         if self.export_worker and self.export_worker.isRunning():
             self.export_worker.cancel()
             self.export_worker.wait()

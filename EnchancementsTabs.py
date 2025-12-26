@@ -17,7 +17,8 @@ try:
         TextOperationWidget,
         TempoWidget,
         KernelFilteringWidget,
-        EdgeDetectWidget
+        EdgeDetectWidget,
+        BlurWidget
     )
 except ImportError as e:
     print(f"Error importing UI components: {e}")
@@ -86,9 +87,12 @@ class EnchancementsTabs(QWidget):
         self.tempo_ui = TempoWidget()
         self.kernel_ui = KernelFilteringWidget()
         self.edge_ui = EdgeDetectWidget()
+        self.blur_ui = BlurWidget()
+
         self.filters_layout.addWidget(self.tempo_ui)
         self.filters_layout.addWidget(self.kernel_ui)
         self.filters_layout.addWidget(self.edge_ui)
+        self.filters_layout.addWidget(self.blur_ui)
         self.filters_layout.addStretch()
         filters_scroll.setWidget(filters_scroll_content)
         filters_tab_layout = QVBoxLayout(self.filters_tab)
@@ -222,6 +226,14 @@ class EnchancementsTabs(QWidget):
         else:
             self.edge_ui.status_label.setText("")
 
+        self.blur_ui.setEnabled(is_video)
+        if not is_video:
+            self.blur_ui.enable_cb.setChecked(False)
+            self.blur_ui.status_label.setText("(Video Only)")
+        else:
+            self.blur_ui.status_label.setText("")
+
+
         filters = clip_data.get('filters', {})
         transforms = filters.get('Transforms', {}).get('Video', {})
         timing_filters = filters.get('Timing', {}).get('Video', {})
@@ -240,6 +252,7 @@ class EnchancementsTabs(QWidget):
         self.tempo_ui.set_data(filters_ops.get('Tempo', {}))
         self.kernel_ui.set_data(filters_ops.get('Kernel Filtering', {}))
         self.edge_ui.set_data(filters_ops.get('Edge Detect', {}))
+        self.blur_ui.set_data(filters_ops.get('Blur', {}))
 
     def _on_apply(self):
         crop_values = self.crop_ui.get_data()
@@ -254,6 +267,7 @@ class EnchancementsTabs(QWidget):
         tempo_values = self.tempo_ui.get_data()
         kernel_values = self.kernel_ui.get_data()
         edge_values = self.edge_ui.get_data()
+        blur_values = self.blur_ui.get_data()
 
         filter_stack = {
             'Transforms': {
@@ -281,7 +295,8 @@ class EnchancementsTabs(QWidget):
                 'Video': {
                     'Tempo': tempo_values,
                     'Kernel Filtering': kernel_values,
-                    'Edge Detect': edge_values
+                    'Edge Detect': edge_values,
+                    'Blur': blur_values
                 }
             }
         }
