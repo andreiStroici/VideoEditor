@@ -78,20 +78,25 @@ class EnchancementsTabs(QWidget):
         tab_layout.addWidget(scroll)
         
         self.tabs.addTab(self.transforms_tab, "Transforms")
-        
         self.filters_tab = QWidget()
-        self.filters_layout = QVBoxLayout(self.filters_tab)
+        filters_scroll = QScrollArea()
+        filters_scroll.setWidgetResizable(True)
+        filters_scroll_content = QWidget()
+        self.filters_layout = QVBoxLayout(filters_scroll_content)
         self.tempo_ui = TempoWidget()
         self.kernel_ui = KernelFilteringWidget()
         self.edge_ui = EdgeDetectWidget()
-        
         self.filters_layout.addWidget(self.tempo_ui)
         self.filters_layout.addWidget(self.kernel_ui)
         self.filters_layout.addWidget(self.edge_ui)
-        
         self.filters_layout.addStretch()
+        filters_scroll.setWidget(filters_scroll_content)
+        filters_tab_layout = QVBoxLayout(self.filters_tab)
+        filters_tab_layout.setContentsMargins(0, 0, 0, 0)
+        filters_tab_layout.addWidget(filters_scroll)
         
         self.tabs.addTab(self.filters_tab, "Filters")
+
         self.tabs.addTab(QWidget(), "Timing")
         self.tabs.addTab(QWidget(), "Text")
         self.tabs.addTab(QWidget(), "Composition")
