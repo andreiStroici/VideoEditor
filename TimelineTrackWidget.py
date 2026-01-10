@@ -33,7 +33,7 @@ class TimelineTrackWidget(QWidget):
         self.COLOR_VIDEO = "#800080"
         self.COLOR_AUDIO = "#FFA500"
         self.COLOR_IMAGE = "#3a6ea5"
-        self.COLOR_GAP   = "#000000"
+        self.COLOR_GAP   = "#00000000"
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.black_path = os.path.join(base_dir, "icons", "blackCat.jpg")
@@ -607,17 +607,20 @@ class TimelineTrackWidget(QWidget):
                 if start < self.playhead_pos_ms < end:
                     target_clip_index = self.selected_index
                     target_clip = candidate
+        
         if target_clip is None:
             return False
+        
         split_point_global = self.playhead_pos_ms
         split_point_local_ms = split_point_global - target_clip['start']
         split_point_sec = split_point_local_ms / 1000.0
         
         original_path = target_clip['path']
         original_duration = target_clip['duration']
+        
         is_image = original_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))
+        
         if is_image:
-
             part1 = target_clip.copy()
             part1['duration'] = split_point_local_ms
 
@@ -631,6 +634,7 @@ class TimelineTrackWidget(QWidget):
             self.clips.insert(target_clip_index + 1, part2)
             
         else:
+
             unique_id = str(uuid.uuid4())[:8]
             base_name = os.path.splitext(os.path.basename(original_path))[0]
             ext = os.path.splitext(original_path)[1]
@@ -640,12 +644,18 @@ class TimelineTrackWidget(QWidget):
             
             part1_path = os.path.join(self.files_cache_dir, part1_filename)
             part2_path = os.path.join(self.files_cache_dir, part2_filename)
+            ffmpeg_args = []
+            
+            if ext.lower() == '.mp3':
+                ffmpeg_args = ['-c:a', 'libmp3lame', '-q:a', '2']
+            else:
+                ffmpeg_args = ['-c', 'copy']
             cmd1 = [
                 'ffmpeg', '-y', 
                 '-ss', '0', 
                 '-i', original_path, 
                 '-t', str(split_point_sec), 
-                '-c', 'copy', 
+                *ffmpeg_args,            
                 '-avoid_negative_ts', 'make_zero',
                 part1_path
             ]
@@ -654,10 +664,11 @@ class TimelineTrackWidget(QWidget):
                 'ffmpeg', '-y', 
                 '-ss', str(split_point_sec), 
                 '-i', original_path, 
-                '-c', 'copy', 
+                *ffmpeg_args,               
                 '-avoid_negative_ts', 'make_zero',
                 part2_path
             ]
+
             try:
                 subprocess.run(cmd1, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 subprocess.run(cmd2, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -665,7 +676,6 @@ class TimelineTrackWidget(QWidget):
                 part1 = target_clip.copy()
                 part1['path'] = part1_path
                 part1['original_path'] = part1_path
-
                 part1['duration'] = split_point_local_ms 
                 
                 part2 = target_clip.copy()
@@ -682,6 +692,12 @@ class TimelineTrackWidget(QWidget):
             except Exception as e:
                 print(f"Error splitting file: {e}")
                 return False
+
+        self.selected_index = -1 
+        self._rebuild_track_with_gaps()
+        self.track_changed.emit()
+        self.update()
+        return True
 
         self.selected_index = -1 
         self._rebuild_track_with_gaps()

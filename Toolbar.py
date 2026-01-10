@@ -58,8 +58,8 @@ class Toolbar(QWidget):
         self.toolbar.addWidget(self.add_files_button)
         self.toolbar.addWidget(self.open_folder_button)
         self.toolbar.addWidget(self.save_project_button)
-        self.toolbar.addWidget(self.undo_button)
-        self.toolbar.addWidget(self.redo_button)
+       # self.toolbar.addWidget(self.undo_button)
+        #self.toolbar.addWidget(self.redo_button)
         self.toolbar.addStretch()
 
         #defined signals conections
